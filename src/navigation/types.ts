@@ -1,7 +1,6 @@
 export type RootStackParamList = {
   Onboarding: undefined;
   Dashboard: undefined;
-  IngredientLibrary: undefined;
   IngredientForm: { productId?: number; ingredientId?: number };
   ProductList: undefined;
   ProductForm: { productId?: number } | undefined;
@@ -19,5 +18,6 @@ export type RootStackParamList = {
   Analytics: undefined;
   Reports: undefined;
   Settings: undefined;
+  ResourcesLibrary: undefined;
 };
 

@@ -29,7 +29,6 @@ runMigrationStatement(`
   CREATE TABLE IF NOT EXISTS ingredients (
     id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
     name TEXT NOT NULL,
-    category TEXT NOT NULL,
     unit TEXT NOT NULL,
     price_per_unit REAL NOT NULL DEFAULT 0,
     yield_factor REAL NOT NULL DEFAULT 1,
@@ -37,6 +36,40 @@ runMigrationStatement(`
     updated_at TEXT NOT NULL
   );
 `);
+
+// Safe migration: rebuild ingredients table without the old `category` column
+// (ALTER TABLE DROP COLUMN is unsupported on older SQLite/Android versions)
+try {
+  const cols = expoDb.getAllSync(`PRAGMA table_info(ingredients)`) as any[];
+  const hasCategory = cols.some((c) => c.name === 'category');
+  const hasQuantity = cols.some((c) => c.name === 'quantity');
+  if (hasCategory && !hasQuantity) {
+    // Rebuild table without category to fix NOT NULL constraint
+    expoDb.execSync(`
+      CREATE TABLE IF NOT EXISTS ingredients_new (
+        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+        name TEXT NOT NULL,
+        unit TEXT NOT NULL,
+        quantity REAL NOT NULL DEFAULT 1,
+        price_per_unit REAL NOT NULL DEFAULT 0,
+        yield_factor REAL NOT NULL DEFAULT 1,
+        classification TEXT NOT NULL DEFAULT 'measurable',
+        product_id INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL DEFAULT '',
+        updated_at TEXT NOT NULL DEFAULT ''
+      );
+    `);
+    expoDb.execSync(`
+      INSERT INTO ingredients_new (id, name, unit, price_per_unit, yield_factor, product_id, created_at, updated_at)
+      SELECT id, name, unit, price_per_unit, yield_factor, COALESCE(product_id, 0), COALESCE(created_at, ''), COALESCE(updated_at, '')
+      FROM ingredients;
+    `);
+    expoDb.execSync(`DROP TABLE ingredients;`);
+    expoDb.execSync(`ALTER TABLE ingredients_new RENAME TO ingredients;`);
+  }
+} catch (e) {
+  console.error('Migration rebuild error:', e);
+}
 
 runMigrationStatement(`
   CREATE TABLE IF NOT EXISTS products (
@@ -56,6 +89,8 @@ ensureColumn('ingredients', 'yield_factor', 'REAL', '1');
 ensureColumn('ingredients', 'created_at', 'TEXT', "''");
 ensureColumn('ingredients', 'updated_at', 'TEXT', "''");
 ensureColumn('ingredients', 'product_id', 'INTEGER', '0');
+ensureColumn('ingredients', 'quantity', 'REAL', '1');
+ensureColumn('ingredients', 'classification', 'TEXT');
 
 // Add Missing Columns safely to Products
 ensureColumn('products', 'batch_size', 'INTEGER', '1');
@@ -142,7 +177,8 @@ runMigrationStatement(`
   );
 `);
 
-runMigrationStatement(`CREATE UNIQUE INDEX IF NOT EXISTS idx_monthly_sales_product_month ON monthly_sales (product_id, month);`);
+runMigrationStatement(`DROP INDEX IF EXISTS idx_monthly_sales_product_month;`);
+runMigrationStatement(`CREATE INDEX IF NOT EXISTS idx_monthly_sales_product_month ON monthly_sales (product_id, month);`);
 runMigrationStatement(`CREATE UNIQUE INDEX IF NOT EXISTS idx_monthly_goals_month ON monthly_goals (month);`);
 
 export const db = drizzle(expoDb);

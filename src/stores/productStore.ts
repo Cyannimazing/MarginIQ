@@ -6,6 +6,7 @@ import {
   listProducts, 
   listProductIngredientRows, 
   addProductIngredient, 
+  bulkAddProductIngredients,
   updateProductIngredient, 
   removeProductIngredient,
   trashProduct,
@@ -40,6 +41,7 @@ interface ProductState {
   clearProductIngredients: () => void;
   loadProductIngredients: (productId: number) => Promise<void>;
   addIngredientToProduct: (input: ProductIngredientInput) => Promise<void>;
+  bulkAddIngredientsToProduct: (inputs: ProductIngredientInput[]) => Promise<void>;
   editProductIngredient: (
     productId: number,
     rowId: number,
@@ -169,7 +171,7 @@ export const useProductStore = create<ProductState>((set, get) => ({
   },
 
   getProductIngredients: (productId) => {
-    return get().productIngredients;
+    return get().productIngredients.filter(pi => Number(pi.productId) === Number(productId));
   },
 
   getProductCostBreakdown: (productId) => {
@@ -200,6 +202,20 @@ export const useProductStore = create<ProductState>((set, get) => ({
       await get().loadProducts(); 
     } catch (error) {
       set({ isLoading: false, error: getErrorMessage(error) });
+      throw error;
+    }
+  },
+
+  bulkAddIngredientsToProduct: async (inputs) => {
+    if (inputs.length === 0) return;
+    set({ isLoading: true, error: null });
+    try {
+      await bulkAddProductIngredients(inputs);
+      await get().loadProductIngredients(inputs[0].productId);
+      await get().loadProducts(); 
+    } catch (error) {
+      set({ isLoading: false, error: getErrorMessage(error) });
+      throw error;
     }
   },
 

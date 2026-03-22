@@ -17,6 +17,7 @@ import { FilterChip } from '../components/ui/FilterChip';
 import { ProductCard } from '../features/products/components/ProductCard';
 import { ProductActionModal } from '../features/products/components/ProductActionModal';
 import { useUIStore } from '../stores/uiStore';
+import { ActionModal } from '../components/ui/ActionModal';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Dashboard'>;
 
@@ -27,6 +28,16 @@ export default function DashboardScreen({ navigation }: Props) {
   const setActiveFilter = (filter: string) => useUIStore.getState().setActiveFilter(filter);
   const viewMode = useUIStore((state) => state.viewMode);
   const [selectedProduct, setSelectedProduct] = useState<any>(null);
+
+  const [modalState, setModalState] = useState<{
+    visible: boolean;
+    title: string;
+    message: string;
+    confirmText: string;
+    isDestructive?: boolean;
+    isAlert?: boolean;
+    onConfirm?: () => void;
+  }>({ visible: false, title: '', message: '', confirmText: 'Confirm' });
 
   const products = useProductStore((state) => state.products);
   const trashProducts = useProductStore((state) => state.trashProducts);
@@ -79,8 +90,29 @@ export default function DashboardScreen({ navigation }: Props) {
     try {
       await action();
     } catch (err: any) {
-      Alert.alert('Error', err.message || 'Action failed.');
+      setModalState({
+        visible: true,
+        title: 'Error',
+        message: err.message || 'Action failed.',
+        confirmText: 'OK',
+        isAlert: true,
+      });
     }
+  };
+
+  const confirmAction = (title: string, message: string, confirmText: string, action: () => Promise<void> | void, isDestructive = false) => {
+    setModalState({
+      visible: true,
+      title,
+      message,
+      confirmText,
+      isDestructive,
+      isAlert: false,
+      onConfirm: async () => {
+        setModalState((s: any) => ({ ...s, visible: false }));
+        await handleAction(async () => await action());
+      }
+    });
   };
 
   const getProductEarned = (productId: number) => {
@@ -120,8 +152,9 @@ export default function DashboardScreen({ navigation }: Props) {
           <View className="px-6 mb-4">
             <ProductCard
               product={item}
-              onPress={() => navigation.navigate('ProductDetail', { productId: item.id })}
+              onPress={() => setSelectedProduct(item)}
               onLongPress={(p) => setSelectedProduct(p)}
+              onChevronPress={() => navigation.navigate('ProductDetail', { productId: item.id })}
               earned={getProductEarned(item.id)}
               currencyCode={currencyCode}
               isTrashView={viewMode === 'trash'}
@@ -145,9 +178,9 @@ export default function DashboardScreen({ navigation }: Props) {
         onPin={(id) => handleAction(() => togglePin(id))}
         onArchive={(id) => handleAction(() => toggleArchive(id))}
         onColorChange={(id, color) => handleAction(() => updateColor(id, color))}
-        onTrash={(id) => handleAction(() => trashProduct(id))}
-        onRestore={(id) => handleAction(() => restoreProduct(id))}
-        onDeletePermanent={(id) => handleAction(() => removeProduct(id))}
+        onTrash={(id) => confirmAction('Move to Trash', 'Are you sure you want to move this product to the trash?', 'Move to Trash', () => trashProduct(id), true)}
+        onRestore={(id) => confirmAction('Restore Product', 'Are you sure you want to restore this product?', 'Restore', () => restoreProduct(id), false)}
+        onDeletePermanent={(id) => confirmAction('Delete Forever', 'Permanently delete this product? This action cannot be undone.', 'Delete Forever', () => removeProduct(id), true)}
         navigation={navigation}
       />
 
@@ -177,6 +210,23 @@ export default function DashboardScreen({ navigation }: Props) {
           <Ionicons name="add" size={32} color="white" />
         </Pressable>
       )}
+
+      <ActionModal
+        visible={modalState.visible}
+        title={modalState.title}
+        message={modalState.message}
+        primaryActionText={modalState.isAlert ? 'OK' : modalState.confirmText}
+        secondaryActionText={modalState.isAlert ? undefined : 'Cancel'}
+        isDestructive={!modalState.isAlert && modalState.isDestructive}
+        onPrimaryAction={() => {
+          if (modalState.isAlert) {
+            setModalState((s: any) => ({ ...s, visible: false }));
+          } else {
+            modalState.onConfirm?.();
+          }
+        }}
+        onSecondaryAction={() => setModalState((s: any) => ({ ...s, visible: false }))}
+      />
     </View>
   );
 }

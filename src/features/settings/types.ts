@@ -10,4 +10,5 @@ export type AppSettings = {
   defaultTargetFixedProfitAmount: number;
   defaultPricingMethod: PricingMethod;
   onboardingCompleted: boolean;
+  lastSalesLogType: 'daily' | 'weekly' | 'monthly';
 };

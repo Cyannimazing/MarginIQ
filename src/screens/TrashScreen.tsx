@@ -1,9 +1,10 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { Alert, FlatList, Pressable, Text, View } from 'react-native';
+import { FlatList, Pressable, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { RootStackParamList } from '../navigation/types';
+import { ActionModal } from '../components/ui/ActionModal';
 import { useProductStore } from '../stores/productStore';
 import { useSettingsStore } from '../stores/settingsStore';
 
@@ -16,30 +17,39 @@ export function TrashScreen({ navigation }: Props) {
   const removeProduct = useProductStore((state) => state.removeProduct);
   const currencyCode = useSettingsStore((state) => state.settings.currencyCode);
 
+  const [modalState, setModalState] = useState<{
+    visible: boolean;
+    title: string;
+    message: string;
+    confirmText: string;
+    isDestructive?: boolean;
+    onConfirm?: () => void;
+  }>({ visible: false, title: '', message: '', confirmText: 'Confirm' });
+
   useEffect(() => {
     void loadTrashProducts();
   }, [loadTrashProducts]);
 
   const handleRestore = (product: any) => {
-    Alert.alert('Restore Product', `Do you want to restore ${product.name}?`, [
-      { text: 'Cancel' },
-      { text: 'Restore', onPress: () => restoreProduct(product.id) },
-    ]);
+    setModalState({
+      visible: true,
+      title: 'Restore Product',
+      message: `Do you want to restore ${product.name}?`,
+      confirmText: 'Restore',
+      isDestructive: false,
+      onConfirm: () => restoreProduct(product.id),
+    });
   };
 
   const handlePermanentDelete = (product: any) => {
-    Alert.alert(
-      'Delete Forever',
-      `Permanently delete ${product.name}? This action cannot be undone.`,
-      [
-        { text: 'Cancel' },
-        {
-          text: 'Delete Forever',
-          style: 'destructive',
-          onPress: () => removeProduct(product.id)
-        },
-      ]
-    );
+    setModalState({
+      visible: true,
+      title: 'Delete Forever',
+      message: `Permanently delete ${product.name}? This action cannot be undone.`,
+      confirmText: 'Delete Forever',
+      isDestructive: true,
+      onConfirm: () => removeProduct(product.id),
+    });
   };
 
   return (
@@ -95,6 +105,20 @@ export function TrashScreen({ navigation }: Props) {
           )}
         />
       )}
+
+      <ActionModal
+        visible={modalState.visible}
+        title={modalState.title}
+        message={modalState.message}
+        primaryActionText={modalState.confirmText}
+        secondaryActionText="Cancel"
+        isDestructive={modalState.isDestructive}
+        onPrimaryAction={() => {
+          setModalState((s: any) => ({ ...s, visible: false }));
+          modalState.onConfirm?.();
+        }}
+        onSecondaryAction={() => setModalState((s: any) => ({ ...s, visible: false }))}
+      />
     </View>
   );
 }

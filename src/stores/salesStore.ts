@@ -1,8 +1,8 @@
 import { create } from 'zustand';
 import {
+  addMonthlySale,
   deleteMonthlySale,
   listMonthlySales,
-  upsertMonthlySale,
 } from '../db/queries/sales';
 import { MonthlySale, MonthlySaleInput } from '../features/sales/types';
 
@@ -35,7 +35,7 @@ export const useSalesStore = create<SalesState>((set, get) => ({
   saveMonthlySale: async (input) => {
     set({ isLoading: true, error: null });
     try {
-      await upsertMonthlySale(input);
+      await addMonthlySale(input);
       const rows = await listMonthlySales();
       set({ monthlySales: rows, isLoading: false });
     } catch (error) {
@@ -54,8 +54,5 @@ export const useSalesStore = create<SalesState>((set, get) => ({
       throw error;
     }
   },
-  getMonthlySale: (productId, month) =>
-    get().monthlySales.find(
-      (entry) => entry.productId === productId && entry.month === month,
-    ),
+  getMonthlySale: (productId, month) => undefined,
 }));

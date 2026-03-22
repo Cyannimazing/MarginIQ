@@ -1,11 +1,24 @@
-const MONTH_REGEX = /^\d{4}-(0[1-9]|1[0-2])$/;
+const PERIOD_REGEX = /^\d{4}-(0[1-9]|1[0-2])(-\d{2})?$|^\d{4}-W(0[1-9]|[1-4]\d|5[0-3])$/;
 
 export function getCurrentMonth() {
   return new Date().toISOString().slice(0, 7);
 }
 
+export function getDailyPeriod() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+export function getWeeklyPeriod() {
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  d.setDate(d.getDate() + 3 - (d.getDay() + 6) % 7);
+  const week1 = new Date(d.getFullYear(), 0, 4);
+  const week = 1 + Math.round(((d.getTime() - week1.getTime()) / 86400000 - 3 + (week1.getDay() + 6) % 7) / 7);
+  return `${d.getFullYear()}-W${week.toString().padStart(2, '0')}`;
+}
+
 export function isValidMonth(value: string) {
-  return MONTH_REGEX.test(value.trim());
+  return PERIOD_REGEX.test(value.trim());
 }
 
 export function compareMonths(a: string, b: string) {

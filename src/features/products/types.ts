@@ -48,6 +48,7 @@ export type ProductIngredientRow = {
   ingredientName: string;
   ingredientUnit: string;
   ingredientPricePerUnit: number;
+  ingredientQuantity: number;
   ingredientYieldFactor: number;
   ingredientClassification: 'measurable' | 'fixed';
   quantityUsed: number;

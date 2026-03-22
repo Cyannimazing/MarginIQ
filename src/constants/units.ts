@@ -10,4 +10,5 @@ export const INGREDIENT_UNITS = [
   'box',
   'pack',
   'batch',
+  'UNIT',
 ] as const;

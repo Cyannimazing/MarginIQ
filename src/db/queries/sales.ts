@@ -13,37 +13,8 @@ export async function listMonthlySales() {
     .orderBy(desc(monthlySales.month), desc(monthlySales.recordedAt));
 }
 
-export async function upsertMonthlySale(input: MonthlySaleInput) {
-  const existing = await db
-    .select({ id: monthlySales.id })
-    .from(monthlySales)
-    .where(
-      and(
-        eq(monthlySales.productId, input.productId),
-        eq(monthlySales.month, input.month),
-      ),
-    );
-
+export async function addMonthlySale(input: MonthlySaleInput) {
   const now = getTimestamp();
-
-  if (existing[0]) {
-    await db
-      .update(monthlySales)
-      .set({
-        unitsSold: input.unitsSold,
-        unitsUnsold: input.unitsUnsold,
-        actualRevenue: input.actualRevenue,
-        actualCost: input.actualCost,
-        actualProfit: input.actualProfit,
-        targetProfit: input.targetProfit,
-        shortfall: input.shortfall,
-        recordedAt: now,
-      })
-      .where(eq(monthlySales.id, existing[0].id))
-      .execute();
-    await syncGoalEarnedForMonth(input.month);
-    return;
-  }
 
   await db
     .insert(monthlySales)

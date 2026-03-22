@@ -56,9 +56,9 @@ export function Sidebar({ isOpen, onClose, currentView, onSelectView }: SidebarP
     { id: 'active', label: 'Products', icon: 'cube-outline', activeIcon: 'cube' },
     { id: 'analytics', label: 'Analytics', icon: 'bar-chart-outline', activeIcon: 'bar-chart' },
     { id: 'settings', label: 'Business Profile', icon: 'business-outline', activeIcon: 'business' },
+    { id: 'resources', label: 'Resources Library', icon: 'library-outline', activeIcon: 'library', route: 'ResourcesLibrary' },
     { id: 'archived', label: 'Archive', icon: 'archive-outline', activeIcon: 'archive' },
     { id: 'trash', label: 'Trash', icon: 'trash-outline', activeIcon: 'trash' },
-    { id: 'resources', label: 'Resource Library', icon: 'list-outline', activeIcon: 'list' },
   ];
 
   const secondaryItems: MenuItem[] = [
@@ -91,9 +91,7 @@ export function Sidebar({ isOpen, onClose, currentView, onSelectView }: SidebarP
             style={s.logoImage}
             resizeMode="contain"
           />
-          <View style={s.logoTextContainer}>
-            <Text style={s.logoText}>MarginIQ</Text>
-          </View>
+          <Text style={s.logoName}>MarginIQ</Text>
         </View>
 
         <View style={s.menuContainer}>
@@ -102,8 +100,8 @@ export function Sidebar({ isOpen, onClose, currentView, onSelectView }: SidebarP
             const isActive = 
               (item.id.toLowerCase() === 'analytics' && currentRouteName.toLowerCase() === 'analytics') ||
               (item.id.toLowerCase() === 'settings' && currentRouteName.toLowerCase() === 'settings') ||
+              (item.id.toLowerCase() === 'resources' && currentRouteName === 'ResourcesLibrary') ||
               (item.id.toLowerCase() === 'trash' && currentRouteName.toLowerCase() === 'trash') ||
-              (item.id.toLowerCase() === 'resources' && currentRouteName.toLowerCase() === 'ingredientlibrary') ||
               (currentRouteName === 'Dashboard' && currentView === item.id);
 
             return (
@@ -116,8 +114,8 @@ export function Sidebar({ isOpen, onClose, currentView, onSelectView }: SidebarP
                   } else if (item.id === 'analytics') {
                     safeNavigate('Analytics');
                     onClose();
-                  } else if (item.id === 'resources') {
-                    safeNavigate('IngredientLibrary');
+                  } else if (item.route === 'ResourcesLibrary') {
+                    safeNavigate('ResourcesLibrary');
                     onClose();
                   } else {
                     onSelectView(item.id as any);
@@ -173,7 +171,7 @@ export function Sidebar({ isOpen, onClose, currentView, onSelectView }: SidebarP
         </View>
 
         <View style={s.footer}>
-          <Text style={s.versionText}>v1.0.4 • ACTIVE SESSION</Text>
+          <Text style={s.versionText}>v1.0.0</Text>
         </View>
       </Animated.View>
     </View>
@@ -195,8 +193,6 @@ const s = StyleSheet.create({
     top: 0,
     bottom: 0,
     backgroundColor: '#ffffff',
-    borderTopRightRadius: 32,
-    borderBottomRightRadius: 32,
     shadowColor: '#000',
     shadowOffset: { width: 4, height: 0 },
     shadowOpacity: 0.1,
@@ -206,27 +202,24 @@ const s = StyleSheet.create({
   },
   header: {
     paddingHorizontal: 24,
-    paddingTop: 56, // Shifted up for easier navigation access
-    paddingBottom: 20, // Reduced footprint
+    paddingTop: 56,
+    paddingBottom: 24,
     borderBottomWidth: 1,
-    borderBottomColor: '#f1f5f9', // slate-100
-    flexDirection: 'row', // Horizontal raw alignment
-    alignItems: 'center', // Vertically center logo and text
-    justifyContent: 'center', // Horizontally center the entire brand unit
-  },
-  logoTextContainer: {
-    marginLeft: -4, // Refined 8px spacing for professional balance
+    borderBottomColor: '#f1f5f9',
+    flexDirection: 'row',
     alignItems: 'center',
-  },
-  logoText: {
-    fontSize: 22,
-    fontWeight: '900',
-    color: '#052e16', // brand-950
-    letterSpacing: -0.5,
+    justifyContent: 'center',
+    gap: 12,
   },
   logoImage: {
-    width: 60,
-    height: 60,
+    width: 48,
+    height: 48,
+  },
+  logoName: {
+    fontSize: 24,
+    fontWeight: '900',
+    color: '#052e16',
+    letterSpacing: -1,
   },
   logoSubtitle: {
     fontSize: 9,

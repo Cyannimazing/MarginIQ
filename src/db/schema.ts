@@ -39,7 +39,7 @@ export const productIngredients = sqliteTable('product_ingredients', {
   ingredientId: integer('ingredient_id').notNull(),
   quantityUsed: real('quantity_used').notNull(),
   costType: text('cost_type', {
-    enum: ['material', 'packaging', 'overhead', 'labor', 'utilities', 'other'],
+    enum: ['ingredients', 'material', 'packaging', 'overhead', 'labor', 'utilities', 'other'],
   }).notNull(),
 });
 

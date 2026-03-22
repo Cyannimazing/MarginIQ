@@ -9,12 +9,12 @@ import { ProductDetailScreen } from '../screens/ProductDetailScreen';
 import { TrashScreen } from '../screens/TrashScreen';
 import { ProductFormScreen } from '../screens/ProductFormScreen';
 import { IngredientFormScreen } from '../screens/IngredientFormScreen';
-import { ResourceLibraryScreen } from '../screens/IngredientLibraryScreen';
 import { ReportsScreen } from '../screens/ReportsScreen';
 import { SalesLoggerScreen } from '../screens/SalesLoggerScreen';
 import DashboardScreen from '../screens/DashboardScreen';
 import { AnalyticsScreen } from '../screens/AnalyticsScreen';
 import { SettingsScreen } from '../screens/SettingsScreen';
+import { ResourcesLibraryScreen } from '../screens/ResourcesLibraryScreen';
 import { useUIStore } from '../stores/uiStore';
 import { RootStackParamList } from './types';
 
@@ -23,7 +23,7 @@ const Stack = createNativeStackNavigator<RootStackParamList>();
 function CustomHeader({ title, back, navigation, options, route }: any) {
   const HeaderRight = options.headerRight;
 
-  const PRIMARY_SCREENS = ['Dashboard', 'Analytics', 'Settings', 'IngredientLibrary', 'Reports', 'SalesLogger', 'Trash'];
+  const PRIMARY_SCREENS = ['Dashboard', 'Analytics', 'Settings', 'Reports', 'Trash'];
   const isPrimary = PRIMARY_SCREENS.includes(route.name);
 
   return (
@@ -100,6 +100,11 @@ export function RootNavigator({ onboardingCompleted }: RootNavigatorProps) {
         component={SettingsScreen}
         options={{ title: 'Business Profile' }}
       />
+      <Stack.Screen
+        name="ResourcesLibrary"
+        component={ResourcesLibraryScreen}
+        options={{ title: 'Resources Library' }}
+      />
 
       {/* Stack screens on top of tabs */}
       <Stack.Screen
@@ -121,11 +126,6 @@ export function RootNavigator({ onboardingCompleted }: RootNavigatorProps) {
         name="ProductAddIngredient"
         component={ProductAddIngredientScreen}
         options={{ title: 'Compose Resources' }}
-      />
-      <Stack.Screen
-        name="IngredientLibrary"
-        component={ResourceLibraryScreen}
-        options={{ title: 'Resource Library' }}
       />
       <Stack.Screen
         name="IngredientForm"

@@ -1,4 +1,4 @@
-const roundTo = (value: number, digits = 4) => {
+export const roundTo = (value: number, digits = 4) => {
   const factor = 10 ** digits;
   return Math.round(value * factor) / factor;
 };
@@ -75,21 +75,21 @@ export function calculateMarkupPercent(sellingPrice: number, totalCost: number) 
 }
 
 export function calculateActualRevenue(sellingPrice: number, unitsSold: number) {
-  return roundTo(normalizeAmount(sellingPrice) * normalizeUnits(unitsSold));
+  return roundTo(normalizeAmount(sellingPrice) * normalizeUnits(unitsSold), 2);
 }
 
 export function calculateBatchCostFromUnits(costPerUnit: number, unitsProduced: number) {
-  return roundTo(normalizeAmount(costPerUnit) * normalizeUnits(unitsProduced));
+  return roundTo(normalizeAmount(costPerUnit) * normalizeUnits(unitsProduced), 2);
 }
 
 export function calculateActualProfit(actualRevenue: number, totalBatchCost: number) {
-  return roundTo(normalizeAmount(actualRevenue) - normalizeAmount(totalBatchCost));
+  return roundTo(normalizeAmount(actualRevenue) - normalizeAmount(totalBatchCost), 2);
 }
 
 export function calculateTargetProfit(targetRevenue: number, totalBatchCost: number) {
-  return roundTo(normalizeAmount(targetRevenue) - normalizeAmount(totalBatchCost));
+  return roundTo(normalizeAmount(targetRevenue) - normalizeAmount(totalBatchCost), 2);
 }
 
 export function calculateShortfall(targetProfit: number, actualProfit: number) {
-  return roundTo(normalizeAmount(targetProfit) - actualProfit);
+  return roundTo(normalizeAmount(targetProfit) - actualProfit, 2);
 }

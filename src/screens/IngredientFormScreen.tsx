@@ -13,8 +13,12 @@ import {
 } from '../features/ingredients/types';
 import { RootStackParamList } from '../navigation/types';
 import { useIngredientStore } from '../stores/ingredientStore';
+import { useSettingsStore } from '../stores/settingsStore';
+import { formatMoney } from '../utils/currency';
 import { OptionChip } from '../components/ui/OptionChip';
 import { FormSection } from '../components/ui/FormSection';
+import { ActionModal } from '../components/ui/ActionModal';
+import { useState } from 'react';
 
 const ingredientSchema = z.object({
   name: z.string().trim().min(1, 'Name is required'),
@@ -53,8 +57,17 @@ export function IngredientFormScreen({ route, navigation }: Props) {
   const addIngredient = useIngredientStore((state) => state.addIngredient);
   const editIngredient = useIngredientStore((state) => state.editIngredient);
   const getIngredientById = useIngredientStore((state) => state.getIngredientById);
+  const currencyCode = useSettingsStore((state) => state.settings.currencyCode);
 
   const existingIngredient = ingredientId ? getIngredientById(ingredientId) : undefined;
+
+  const [modalState, setModalState] = useState<{
+    visible: boolean;
+    title: string;
+    message: string;
+    isSuccess?: boolean;
+    onConfirm?: () => void;
+  }>({ visible: false, title: '', message: '' });
 
   const {
     control,
@@ -82,7 +95,7 @@ export function IngredientFormScreen({ route, navigation }: Props) {
       productId: Number(productId),
       name: values.name.trim(),
       classification: values.classification,
-      unit: values.classification === 'fixed' ? 'batch' : values.unit,
+      unit: values.classification === 'fixed' ? 'UNIT' : values.unit,
       quantity: Number(values.quantity),
       pricePerUnit: Number(values.pricePerUnit),
       yieldFactor: Number(values.yieldFactor),
@@ -101,23 +114,22 @@ export function IngredientFormScreen({ route, navigation }: Props) {
   };
 
   const handleDelete = () => {
-    Alert.alert(
-      'Delete Resource',
-      `Delete "${existingIngredient?.name}" permanently?`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: async () => {
-            if (ingredientId) {
-              await useIngredientStore.getState().removeIngredient(productId, ingredientId);
-              navigation.goBack();
-            }
-          },
-        },
-      ],
-    );
+    setModalState({
+      visible: true,
+      title: 'Delete Resource',
+      message: `Delete "${existingIngredient?.name}" permanently?`,
+      onConfirm: async () => {
+        if (ingredientId) {
+          await useIngredientStore.getState().removeIngredient(productId, ingredientId);
+          setModalState({
+            visible: true,
+            title: 'Deleted',
+            message: 'Resource removed successfully.',
+            isSuccess: true,
+          });
+        }
+      },
+    });
   };
 
   return (
@@ -128,7 +140,7 @@ export function IngredientFormScreen({ route, navigation }: Props) {
       >
         <ScrollView className="flex-1 px-6" keyboardShouldPersistTaps="handled">
           <View style={{ height: 24 }} />
-          
+
           <FormSection title="Resource Identity" icon="leaf">
             <View className="mb-6">
               <Text className="text-[10px] font-black text-brand-400 uppercase mb-2 tracking-[2px] px-1">Identity Name</Text>
@@ -168,49 +180,70 @@ export function IngredientFormScreen({ route, navigation }: Props) {
 
           <FormSection title="Pricing & Reference" icon="pricetag">
             <View className="flex-row gap-4 mb-8">
-               <View className="flex-1">
-                  <Text className="text-[10px] font-black text-brand-400 uppercase mb-2 tracking-[2px] px-1">
-                    Qty in {selectedClassification === 'fixed' ? 'Batch' : selectedUnit}
-                  </Text>
-                  <Controller
-                    control={control}
-                    name="quantity"
-                    render={({ field: { value, onChange, onBlur } }) => (
-                      <TextInput
-                        value={value}
-                        onChangeText={onChange}
-                        onBlur={onBlur}
-                        keyboardType="decimal-pad"
-                        placeholder="1.0"
-                        className="rounded-[24px] border border-brand-100 bg-white px-6 py-5 text-xl text-brand-950 font-black shadow-sm"
-                      />
-                    )}
-                  />
-               </View>
-               <View className="flex-1">
-                  <Text className="text-[10px] font-black text-brand-400 uppercase mb-2 tracking-[2px] px-1">Price</Text>
-                  <Controller
-                    control={control}
-                    name="pricePerUnit"
-                    render={({ field: { value, onChange, onBlur } }) => (
-                      <TextInput
-                        value={value}
-                        onChangeText={onChange}
-                        onBlur={onBlur}
-                        keyboardType="decimal-pad"
-                        placeholder="0.00"
-                        value={value}
-                        onChangeText={onChange}
-                        onBlur={onBlur}
-                        keyboardType="decimal-pad"
-                        placeholder="1.0"
-                        className="rounded-[32px] border border-brand-100 bg-brand-50/50 px-6 py-5 text-lg text-brand-950 font-black"
-                      />
-                    )}
-                  />
-               </View>
+              <View className="flex-1">
+                <Text className="text-[10px] font-black text-brand-400 uppercase mb-2 tracking-[2px] px-1">
+                  Qty in {selectedClassification === 'fixed' ? 'UNIT' : selectedUnit}
+                </Text>
+                <Controller
+                  control={control}
+                  name="quantity"
+                  render={({ field: { value, onChange, onBlur } }) => (
+                    <TextInput
+                      value={value}
+                      onChangeText={onChange}
+                      onBlur={onBlur}
+                      keyboardType="decimal-pad"
+                      placeholder="1.0"
+                      className="rounded-[24px] border border-brand-100 bg-white px-6 py-5 text-xl text-brand-950 font-black shadow-sm"
+                    />
+                  )}
+                />
+              </View>
+              <View className="flex-1">
+                <Text className="text-[10px] font-black text-brand-400 uppercase mb-2 tracking-[2px] px-1">Price</Text>
+                <Controller
+                  control={control}
+                  name="pricePerUnit"
+                  render={({ field: { value, onChange, onBlur } }) => (
+                    <TextInput
+                      value={value}
+                      onChangeText={onChange}
+                      onBlur={onBlur}
+                      keyboardType="decimal-pad"
+                      placeholder="0.00"
+                      className="rounded-[32px] border border-brand-100 bg-brand-50/50 px-6 py-5 text-lg text-brand-950 font-black"
+                    />
+                  )}
+                />
+              </View>
             </View>
-            
+
+            {/* Live Calculation Preview */}
+            <View className="bg-brand-50/50 rounded-[28px] p-6 border border-brand-100 mb-2">
+              <View className="flex-row items-center justify-between mb-4">
+                 <Text className="text-[10px] font-black text-brand-400 uppercase tracking-widest">Base Unit Cost</Text>
+                 <View className="bg-brand-900/5 px-2 py-1 rounded-md">
+                   <Text className="text-[10px] font-black text-brand-900 uppercase">CALCULATED</Text>
+                 </View>
+              </View>
+              <View className="flex-row items-end justify-between">
+                <View>
+                  <Text className="text-3xl font-black text-brand-950">
+                    {formatMoney((Number(watch('pricePerUnit')) || 0) / (Number(watch('quantity')) || 1), currencyCode, 3)}
+                  </Text>
+                  <Text className="text-[10px] font-bold text-brand-400 tracking-widest uppercase mt-1">
+                    / {selectedClassification === 'fixed' ? 'UNIT' : selectedUnit}
+                  </Text>
+                </View>
+                <View className="items-end">
+                   <Text className="text-[10px] font-bold text-brand-400 mb-1">REFERENCE</Text>
+                   <Text className="text-[11px] font-black text-brand-800 uppercase">
+                      {watch('quantity') || '1'} {selectedClassification === 'fixed' ? 'UNIT' : selectedUnit} @ {formatMoney(Number(watch('pricePerUnit')) || 0, currencyCode)}
+                   </Text>
+                </View>
+              </View>
+            </View>
+
             {selectedClassification === 'measurable' && (
               <>
                 <Text className="text-[10px] font-black text-brand-800 uppercase mb-3 tracking-widest px-1">Unit of Measure</Text>
@@ -233,7 +266,7 @@ export function IngredientFormScreen({ route, navigation }: Props) {
               onPress={handleSubmit(onSubmit)}
               disabled={isSubmitting}
             >
-              <View className={`h-16 items-center justify-center rounded-[24px] bg-brand-900 shadow-xl shadow-brand-900/40 ${isSubmitting ? 'opacity-70' : ''}`}>
+              <View className={`h-16 items-center justify-center rounded-[24px] bg-brand-900 ${isSubmitting ? 'opacity-70' : ''}`}>
                 <Text className="font-black text-white text-base tracking-[2px] uppercase">
                   {isSubmitting ? 'Saving...' : ingredientId ? 'Update Resource' : 'Register Resource'}
                 </Text>
@@ -253,6 +286,25 @@ export function IngredientFormScreen({ route, navigation }: Props) {
 
         </ScrollView>
       </KeyboardAvoidingView>
+
+      <ActionModal
+        visible={modalState.visible}
+        title={modalState.title}
+        message={modalState.message}
+        primaryActionText={modalState.isSuccess ? 'OK' : 'Delete'}
+        secondaryActionText={modalState.isSuccess ? undefined : 'Cancel'}
+        isDestructive={!modalState.isSuccess}
+        onPrimaryAction={() => {
+          if (modalState.isSuccess) {
+            setModalState((s) => ({ ...s, visible: false }));
+            navigation.goBack();
+          } else {
+            setModalState((s) => ({ ...s, visible: false }));
+            modalState.onConfirm?.();
+          }
+        }}
+        onSecondaryAction={() => setModalState((s) => ({ ...s, visible: false }))}
+      />
     </View>
   );
 }

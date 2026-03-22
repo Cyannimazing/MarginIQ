@@ -13,6 +13,7 @@ type ProductCardProps = {
   product: any;
   onPress: () => void;
   onLongPress: (product: any) => void;
+  onChevronPress: () => void;
   earned?: number;
   currencyCode: string;
   isTrashView?: boolean;
@@ -21,7 +22,8 @@ type ProductCardProps = {
 export function ProductCard({ 
   product, 
   onPress, 
-  onLongPress, 
+  onLongPress,
+  onChevronPress,
   earned = 0, 
   currencyCode,
   isTrashView
@@ -63,11 +65,11 @@ export function ProductCard({
           <Pressable
             onPress={(e) => {
               e.stopPropagation();
-              onLongPress(product);
+              onChevronPress();
             }}
           >
             <View className={`h-10 w-10 items-center justify-center rounded-full ${product.isPinned && !isTrashView ? 'bg-brand-100/50' : 'bg-brand-50/50'}`}>
-              <Ionicons name="ellipsis-vertical" size={20} color="#166534" />
+              <Ionicons name="chevron-forward" size={20} color="#166534" />
             </View>
           </Pressable>
         </View>

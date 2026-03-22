@@ -157,8 +157,23 @@ export async function addProductIngredient(input: ProductIngredientInput) {
       productId: input.productId,
       ingredientId: input.ingredientId,
       quantityUsed: input.quantityUsed,
-      costType: input.costType,
+      costType: input.costType as any,
     })
+    .execute();
+}
+
+export async function bulkAddProductIngredients(inputs: ProductIngredientInput[]) {
+  if (inputs.length === 0) return;
+  await db
+    .insert(productIngredients)
+    .values(
+      inputs.map((i) => ({
+        productId: i.productId,
+        ingredientId: i.ingredientId,
+        quantityUsed: i.quantityUsed,
+        costType: i.costType as any,
+      })),
+    )
     .execute();
 }
 
