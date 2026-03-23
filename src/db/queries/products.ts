@@ -38,6 +38,8 @@ export async function createProduct(input: ProductInput) {
       vatPercent: input.vatPercent,
       pricingMethod: input.pricingMethod,
       monthlyGoalProfit: input.monthlyGoalProfit,
+      discountPercent: input.discountPercent ?? 0.20,
+      monthlyOverhead: input.monthlyOverhead ?? 0,
       isPinned: input.isPinned ?? false,
       color: input.color ?? '',
       isArchived: input.isArchived ?? false,
@@ -62,6 +64,8 @@ export async function updateProduct(id: number, input: ProductInput) {
       vatPercent: input.vatPercent,
       pricingMethod: input.pricingMethod,
       monthlyGoalProfit: input.monthlyGoalProfit,
+      discountPercent: input.discountPercent ?? 0.20,
+      monthlyOverhead: input.monthlyOverhead ?? 0,
       updatedAt: getTimestamp(),
     })
     .where(eq(products.id, id))

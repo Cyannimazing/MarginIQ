@@ -63,6 +63,7 @@ export function ProductFormScreen({ route, navigation }: Props) {
   // Step 2 — Cost Setup
   const [batchSize, setBatchSize] = useState(String(existingProduct?.batchSize ?? 1));
   const [baseCost, setBaseCost] = useState(String(existingProduct?.baseCost ?? 0));
+  const [monthlyOverhead, setMonthlyOverhead] = useState(String(existingProduct?.monthlyOverhead ?? 0));
   const [hasVat, setHasVat] = useState(
     existingProduct ? existingProduct.vatPercent > 0 : !!settings.defaultVatEnabled,
   );
@@ -193,6 +194,7 @@ export function ProductFormScreen({ route, navigation }: Props) {
         vatPercent: hasVat ? Number(vatPercent) / 100 : 0,
         pricingMethod,
         monthlyGoalProfit: existingProduct?.monthlyGoalProfit ?? 0,
+        monthlyOverhead: Number(monthlyOverhead) || 0,
       };
 
       if (initialProductId) {
@@ -322,6 +324,19 @@ export function ProductFormScreen({ route, navigation }: Props) {
                   </View>
                 </View>
                 <Text className="text-[10px] text-brand-400 mt-2 italic font-medium px-1">Cost for wholesale or pre-made items.</Text>
+
+                <View className="mt-4">
+                  <Text className="text-[10px] font-black text-brand-800 uppercase mb-1 tracking-widest">Monthly Overhead ({currencyCode})</Text>
+                  <Text className="text-[10px] text-brand-400 italic font-medium px-1 mb-2">Fixed monthly costs shared by this product (rent, utilities, etc.)</Text>
+                  <TextInput
+                    value={monthlyOverhead}
+                    onChangeText={setMonthlyOverhead}
+                    keyboardType="decimal-pad"
+                    className="rounded-[32px] border border-brand-100 bg-brand-50/50 px-5 py-4 text-base text-brand-900 font-bold"
+                    placeholder="0.00"
+                    placeholderTextColor="#adb5bd"
+                  />
+                </View>
             </FormSection>
 
             <FormSection title="Tax Configuration" icon="receipt">

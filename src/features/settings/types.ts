@@ -11,4 +11,5 @@ export type AppSettings = {
   defaultPricingMethod: PricingMethod;
   onboardingCompleted: boolean;
   lastSalesLogType: 'daily' | 'weekly' | 'monthly';
+  lastSalesInputType: 'Sold' | 'Discounted' | 'Unsold';
 };

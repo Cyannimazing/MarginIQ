@@ -1,11 +1,13 @@
 const PERIOD_REGEX = /^\d{4}-(0[1-9]|1[0-2])(-\d{2})?$|^\d{4}-W(0[1-9]|[1-4]\d|5[0-3])$/;
 
 export function getCurrentMonth() {
-  return new Date().toISOString().slice(0, 7);
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 }
 
 export function getDailyPeriod() {
-  return new Date().toISOString().slice(0, 10);
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
 export function getWeeklyPeriod() {

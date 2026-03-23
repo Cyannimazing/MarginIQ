@@ -157,7 +157,7 @@ export default function DashboardScreen({ navigation }: Props) {
           <View className="px-6 mb-4">
             <ProductCard
               product={item}
-              onPress={() => setSelectedProductId(item.id)}
+              onPress={() => navigation.navigate('ProductDetail', { productId: item.id })}
               onLongPress={(p) => setSelectedProductId(p.id)}
               onChevronPress={() => navigation.navigate('ProductDetail', { productId: item.id })}
               earned={getProductEarned(item.id)}

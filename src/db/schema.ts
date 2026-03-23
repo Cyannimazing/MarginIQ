@@ -25,6 +25,8 @@ export const products = sqliteTable('products', {
   vatPercent: real('vat_percent').notNull().default(0),
   pricingMethod: text('pricing_method').notNull().default('margin'),
   monthlyGoalProfit: real('monthly_goal_profit').notNull().default(0),
+  discountPercent: real('discount_percent').notNull().default(0.20),
+  monthlyOverhead: real('monthly_overhead').notNull().default(0),
   isPinned: integer('is_pinned', { mode: 'boolean' }).notNull().default(false),
   color: text('color').notNull().default(''),
   isArchived: integer('is_archived', { mode: 'boolean' }).default(false),

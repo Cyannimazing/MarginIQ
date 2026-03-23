@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { View, Text, Pressable, Modal, ScrollView, Animated, Dimensions } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 
@@ -40,6 +41,7 @@ export function ProductActionModal({
   onDeletePermanent,
   navigation,
 }: ProductActionModalProps) {
+  const insets = useSafeAreaInsets();
   const [internalVisible, setInternalVisible] = useState(false);
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(SCREEN_HEIGHT)).current;
@@ -82,8 +84,11 @@ export function ProductActionModal({
 
         {/* Sheet */}
         <Animated.View
-          style={{ transform: [{ translateY: slideAnim }] }}
-          className="mt-auto bg-white rounded-t-[40px] pb-10 pt-6 shadow-2xl"
+          style={{ 
+            transform: [{ translateY: slideAnim }],
+            paddingBottom: Math.max(insets.bottom, 24) + 16
+          }}
+          className="mt-auto bg-white rounded-t-[40px] pt-6 shadow-2xl"
         >
           {/* Handle */}
           <View className="w-10 h-1 bg-brand-100 rounded-full self-center mb-6" />
@@ -120,108 +125,75 @@ export function ProductActionModal({
                   className="mb-3"
                   onPress={() => { navigation.navigate('ProductAddIngredient', { productId: product.id }); onClose(); }}
                 >
-                  <View className="bg-brand-900 h-16 rounded-[28px] flex-row items-center justify-center gap-3 shadow-lg">
+                  <View className="bg-brand-900 h-16 rounded-[24px] flex-row items-center justify-center gap-3 shadow-lg border-[1.5px] border-brand-900">
                     <Ionicons name="layers" size={20} color="white" />
                     <Text className="text-[13px] font-black text-white uppercase tracking-widest">Compose Resources</Text>
                   </View>
                 </Pressable>
 
-                {/* ── Secondary: View Analysis ── */}
-                <Pressable
-                  className="mb-3"
-                  onPress={() => { navigation.navigate('ProductDetail', { productId: product.id }); onClose(); }}
-                >
-                  <View className="bg-brand-50 h-14 rounded-[28px] flex-row items-center justify-center gap-3 border border-brand-100">
-                    <Ionicons name="analytics-outline" size={18} color="#14532d" />
-                    <Text className="text-[12px] font-black text-brand-900 uppercase tracking-widest">View Analysis</Text>
-                  </View>
-                </Pressable>
-
                 {/* ── Secondary: Log Sales ── */}
                 <Pressable
-                  className="mb-6"
+                  className="mb-8"
                   onPress={() => { navigation.navigate('SalesLogger', { productId: product.id }); onClose(); }}
                 >
-                  <View className="bg-brand-50 h-14 rounded-[28px] flex-row items-center justify-center gap-3 border border-brand-100">
-                    <Ionicons name="stats-chart-outline" size={18} color="#14532d" />
-                    <Text className="text-[12px] font-black text-brand-900 uppercase tracking-widest">Log Sales</Text>
+                  <View className="bg-brand-50 h-16 rounded-[24px] flex-row items-center justify-center gap-3 border-[1.5px] border-brand-100">
+                    <Ionicons name="stats-chart-outline" size={20} color="#14532d" />
+                    <Text className="text-[13px] font-black text-brand-900 uppercase tracking-widest">Log Sales</Text>
                   </View>
                 </Pressable>
 
-                {/* ── Quick actions row ── */}
-                <View className="mb-6">
-                  <Text className="text-[9px] font-black text-brand-400 uppercase tracking-[3px] mb-4">Quick Actions</Text>
+                {/* ── Unified Actions & Colors Row ── */}
+                <View className="mb-8">
+                  <Text className="text-[9px] font-black text-brand-400 uppercase tracking-[3px] mb-4">Actions & Color</Text>
                   <ScrollView
                     horizontal
                     showsHorizontalScrollIndicator={false}
-                    contentContainerStyle={{ alignItems: 'center', paddingVertical: 6, gap: 12 }}
+                    contentContainerStyle={{ alignItems: 'center', gap: 12, paddingHorizontal: 4 }}
                   >
-                    {/* Edit */}
+                    {/* Quick Actions */}
                     <ActionChip
                       icon="create-outline"
-                      label="Edit"
                       onPress={() => { navigation.navigate('ProductForm', { productId: product.id }); onClose(); }}
                     />
-
-                    {/* Pin */}
                     <ActionChip
                       icon={product.isPinned ? 'pin' : 'pin-outline'}
-                      label={product.isPinned ? 'Unpin' : 'Pin'}
                       active={product.isPinned}
                       activeColor="#d97706"
                       onPress={() => { onPin(product.id); onClose(); }}
                     />
-
-                    {/* Archive */}
                     <ActionChip
                       icon={product.isArchived ? 'archive' : 'archive-outline'}
-                      label={product.isArchived ? 'Unarchive' : 'Archive'}
                       active={product.isArchived}
                       activeColor="#d97706"
                       onPress={() => { onArchive(product.id); onClose(); }}
                     />
+                    <ActionChip
+                      icon="trash-outline"
+                      isDestructive
+                      onPress={() => { onTrash(product.id); onClose(); }}
+                    />
 
-                    {/* Divider */}
-                    <View className="w-px h-8 bg-brand-100 mx-1" />
+                    {/* Separator */}
+                    <View className="w-[1px] h-8 bg-brand-100 mx-1" />
 
-                    {/* Color swatches */}
+                    {/* Colors */}
                     {COLORS.map((color) => {
                       const isSelected = selectedColor === color;
                       return (
-                        <Pressable 
-                          key={color} 
+                        <ActionChip
+                          key={color}
+                          colorBg={color}
+                          active={isSelected}
                           onPress={() => {
                             setSelectedColor(color);
                             onColorChange(product.id, color);
                           }}
-                        >
-                          <View
-                            style={{
-                              backgroundColor: color,
-                              width: 36,
-                              height: 36,
-                              borderRadius: 18,
-                              borderWidth: isSelected ? 2.5 : 1.5,
-                              borderColor: isSelected ? '#14532d' : '#e2e8f0',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                            }}
-                          >
-                            {isSelected && <Ionicons name="checkmark" size={16} color="#14532d" />}
-                          </View>
-                        </Pressable>
+                        />
                       );
                     })}
                   </ScrollView>
                 </View>
 
-                {/* ── Destructive: Trash ── */}
-                <Pressable onPress={() => { onTrash(product.id); onClose(); }}>
-                  <View className="h-12 rounded-[28px] flex-row items-center justify-center gap-2 bg-red-50 border border-red-100">
-                    <Ionicons name="trash-outline" size={16} color="#dc2626" />
-                    <Text className="text-[11px] font-black text-red-600 uppercase tracking-widest">Move to Trash</Text>
-                  </View>
-                </Pressable>
               </>
             )}
           </View>
@@ -233,28 +205,33 @@ export function ProductActionModal({
 
 function ActionChip({
   icon,
-  label,
+  colorBg,
   onPress,
   active,
   activeColor = '#14532d',
+  isDestructive,
 }: {
-  icon: any;
-  label: string;
+  icon?: any;
+  colorBg?: string;
   onPress: () => void;
   active?: boolean;
   activeColor?: string;
+  isDestructive?: boolean;
 }) {
   return (
     <Pressable onPress={onPress}>
       <View
-        className={`items-center gap-1.5 px-4 py-3 rounded-[20px] border ${
-          active ? 'bg-amber-50 border-amber-200' : 'bg-brand-50 border-brand-100'
+        style={colorBg ? { backgroundColor: colorBg } : undefined}
+        className={`items-center justify-center h-14 w-14 rounded-full border-[1.5px] ${
+          active 
+            ? colorBg ? 'border-brand-900 shadow-md' : 'bg-amber-50 border-amber-200 shadow-sm' 
+            : isDestructive
+              ? 'bg-red-50 border-red-100'
+              : colorBg ? 'border-slate-100' : 'bg-brand-50 border-brand-100'
         }`}
       >
-        <Ionicons name={icon} size={18} color={active ? activeColor : '#14532d'} />
-        <Text className={`text-[9px] font-black uppercase tracking-widest ${active ? 'text-amber-700' : 'text-brand-700'}`}>
-          {label}
-        </Text>
+        {icon && <Ionicons name={icon} size={22} color={active ? activeColor : isDestructive ? '#dc2626' : '#14532d'} />}
+        {colorBg && active && <Ionicons name="checkmark" size={22} color="#14532d" />}
       </View>
     </Pressable>
   );

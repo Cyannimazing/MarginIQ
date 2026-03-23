@@ -67,9 +67,7 @@ export function ProductCard({
                 onChevronPress();
               }}
             >
-              <View className={`h-10 w-10 items-center justify-center rounded-full ${product.isPinned && !isTrashView ? 'bg-brand-100/50' : 'bg-brand-50/50'}`}>
-                <Ionicons name="chevron-forward" size={20} color="#166534" />
-              </View>
+              <Ionicons name="chevron-forward" size={18} color="#166534" />
             </Pressable>
           </View>
 

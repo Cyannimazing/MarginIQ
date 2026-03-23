@@ -106,6 +106,8 @@ ensureColumn('products', 'color', 'TEXT', "''");
 ensureColumn('products', 'is_archived', 'INTEGER', '0');
 ensureColumn('products', 'updated_at', 'TEXT', "''");
 ensureColumn('products', 'deleted_at', 'TEXT', 'NULL');
+ensureColumn('products', 'discount_percent', 'REAL', '0.20');
+ensureColumn('products', 'monthly_overhead', 'REAL', '0');
 
 // Ensure other tables
 runMigrationStatement(`

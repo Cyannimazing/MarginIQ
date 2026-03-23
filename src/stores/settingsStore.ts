@@ -14,6 +14,7 @@ const SETTINGS_KEYS = {
   defaultPricingMethod: 'default_pricing_method',
   onboardingCompleted: 'onboarding_completed',
   lastSalesLogType: 'last_sales_log_type',
+  lastSalesInputType: 'last_sales_input_type',
 } as const;
 
 const DEFAULT_SETTINGS: AppSettings = {
@@ -27,6 +28,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   defaultPricingMethod: 'margin',
   onboardingCompleted: false,
   lastSalesLogType: 'daily',
+  lastSalesInputType: 'Sold',
 };
 
 const parseNumber = (value: string | undefined, fallback: number) => {
@@ -118,6 +120,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
           DEFAULT_SETTINGS.onboardingCompleted,
         ),
         lastSalesLogType: (map[SETTINGS_KEYS.lastSalesLogType] as any) || DEFAULT_SETTINGS.lastSalesLogType,
+        lastSalesInputType: (map[SETTINGS_KEYS.lastSalesInputType] as any) || DEFAULT_SETTINGS.lastSalesInputType,
       };
 
       set({ settings: hydrated, isLoading: false, isHydrated: true });
@@ -151,6 +154,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
         [SETTINGS_KEYS.defaultPricingMethod]: nextSettings.defaultPricingMethod,
         [SETTINGS_KEYS.onboardingCompleted]: String(nextSettings.onboardingCompleted),
         [SETTINGS_KEYS.lastSalesLogType]: nextSettings.lastSalesLogType,
+        [SETTINGS_KEYS.lastSalesInputType]: nextSettings.lastSalesInputType,
       });
 
       set({ isLoading: false });

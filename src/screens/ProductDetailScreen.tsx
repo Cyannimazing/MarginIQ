@@ -17,7 +17,7 @@ import { useProductStore } from '../stores/productStore';
 import { useSalesStore } from '../stores/salesStore';
 import { useSettingsStore } from '../stores/settingsStore';
 import { formatMoney, getCurrencySymbol } from '../utils/currency';
-import { getCurrentMonth } from '../utils/month';
+import { getCurrentMonth, getDailyPeriod } from '../utils/month';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'ProductDetail'>;
 
@@ -75,6 +75,14 @@ export function ProductDetailScreen({ route, navigation }: Props) {
   const [priceInput, setPriceInput] = useState('0');
   const [isSavingPrice, setIsSavingPrice] = useState(false);
 
+  const [isEditingDiscount, setIsEditingDiscount] = useState(false);
+  const [discountInput, setDiscountInput] = useState('');
+  const [isSavingDiscount, setIsSavingDiscount] = useState(false);
+
+  const [isEditingOverhead, setIsEditingOverhead] = useState(false);
+  const [overheadInput, setOverheadInput] = useState('');
+  const [isSavingOverhead, setIsSavingOverhead] = useState(false);
+
   const handleSaveGoal = async () => {
     if (!product) return;
     const val = Number(goalInput) || 0;
@@ -86,6 +94,34 @@ export function ProductDetailScreen({ route, navigation }: Props) {
       Alert.alert('Error', 'Could not save monthly goal.');
     } finally {
       setIsSavingGoal(false);
+    }
+  };
+
+  const handleSaveDiscount = async () => {
+    if (!product) return;
+    const val = Math.min(Math.max(Number(discountInput) || 0, 0), 99) / 100;
+    try {
+      setIsSavingDiscount(true);
+      await editProduct(product.id, { discountPercent: val });
+      setIsEditingDiscount(false);
+    } catch {
+      Alert.alert('Error', 'Could not save discount.');
+    } finally {
+      setIsSavingDiscount(false);
+    }
+  };
+
+  const handleSaveOverhead = async () => {
+    if (!product) return;
+    const val = Math.max(Number(overheadInput) || 0, 0);
+    try {
+      setIsSavingOverhead(true);
+      await editProduct(product.id, { monthlyOverhead: val });
+      setIsEditingOverhead(false);
+    } catch {
+      Alert.alert('Error', 'Could not save overhead.');
+    } finally {
+      setIsSavingOverhead(false);
     }
   };
 
@@ -138,6 +174,7 @@ export function ProductDetailScreen({ route, navigation }: Props) {
     preVatDiscountedPrice,
     profitIfDiscounted,
     marginIfDiscounted,
+    discountPercent,
     categoryTotals
   } = useMemo(() => {
     const ingredientsList = productIngredients.filter(pi => pi.costType === 'ingredients');
@@ -195,11 +232,12 @@ export function ProductDetailScreen({ route, navigation }: Props) {
     const pMarkupPercent = (isFinite(roundedCost) && roundedCost > 0) ? (roundedProfit / roundedCost) * 100 : 0;
 
     let profitValid = false;
-    if (product?.pricingMethod === 'fixed') profitValid = pPerPiece >= targetMarginVal;
+    if (product?.pricingMethod === 'fixed') profitValid = Math.round(pPerPiece * bSize * 100) / 100 >= targetMarginVal;
     else if (product?.pricingMethod === 'markup') profitValid = pMarkupPercent >= targetMarginVal * 100;
     else profitValid = pMarginPercent >= targetMarginVal * 100;
 
-    const dPrice = sPrice * 0.80;
+    const discPct = isFinite(Number(product?.discountPercent)) ? Number(product?.discountPercent) : 0.20;
+    const dPrice = sPrice * (1 - discPct);
     const preVatDP = dPrice / (1 + vPercent);
     const pIfDiscounted = dPrice - pPieceTotalCost;
     const mIfDiscounted = dPrice > 0 ? (pIfDiscounted / dPrice) * 100 : 0;
@@ -238,6 +276,7 @@ export function ProductDetailScreen({ route, navigation }: Props) {
       preVatDiscountedPrice: isFinite(preVatDP) ? preVatDP : 0,
       profitIfDiscounted: isFinite(pIfDiscounted) ? pIfDiscounted : 0,
       marginIfDiscounted: isFinite(mIfDiscounted) ? mIfDiscounted : 0,
+      discountPercent: discPct,
       categoryTotals: catTotals,
       suggestedSellingPrice: isFinite(suggestedSellingPrice) ? suggestedSellingPrice : 0,
     };
@@ -287,7 +326,7 @@ export function ProductDetailScreen({ route, navigation }: Props) {
   const daysRemaining = Math.max(lastDayOfMonth - currentDay + 1, 1);
 
   // Today's logged units — used to freeze the daily target denominator
-  const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  const todayStr = getDailyPeriod();
   const unitsSoldToday = monthlySales
     .filter(s => Number(s.productId) === productId && s.month === todayStr)
     .reduce((sum, s) => sum + (Number(s.unitsSold) || 0) + (Number(s.unitsSoldDiscounted) || 0), 0);
@@ -319,6 +358,31 @@ export function ProductDetailScreen({ route, navigation }: Props) {
   const targetValueFormatted = product.pricingMethod === 'fixed'
     ? formatMoney(targetMargin, currencyCode)
     : `${(targetMargin * 100).toFixed(2)}%`;
+
+  // Feature 1 — Configurable Discount
+  const discountPctDisplay = Math.round(discountPercent * 100);
+
+  // Feature 2 — Batches per Month
+  const batchesPerMonth = (totalUnitsForGoal > 0 && batchSize > 0)
+    ? Math.ceil(totalUnitsForGoal / batchSize)
+    : 0;
+
+  // Feature 3 — Break-Even
+  const breakEvenUnitsPerBatch = sellingPrice > 0
+    ? Math.ceil(batchTotalCost / sellingPrice)
+    : batchSize;
+  const breakEvenPct = batchSize > 0
+    ? Math.round((breakEvenUnitsPerBatch / batchSize) * 100)
+    : 0;
+
+  // Feature 4 — Monthly Overhead Impact
+  const monthlyOverhead = isFinite(Number(product.monthlyOverhead)) ? Number(product.monthlyOverhead) : 0;
+  const overheadPerUnit = (monthlyOverhead > 0 && totalUnitsForGoal > 0)
+    ? monthlyOverhead / totalUnitsForGoal
+    : 0;
+  const adjustedUnitCost = perPieceTotalCost + overheadPerUnit;
+  const adjustedProfitPerUnit = sellingPrice - adjustedUnitCost;
+  const adjustedMargin = sellingPrice > 0 ? (adjustedProfitPerUnit / sellingPrice) * 100 : 0;
 
   const renderCompositionRow = (pi: any, key: string) => {
     const subtotal = (getTrueUnitCost(pi) * (Number(pi.quantityUsed) || 0));
@@ -401,6 +465,7 @@ export function ProductDetailScreen({ route, navigation }: Props) {
             </View>
           </View>
 
+
           {/* ── Monthly Goal Progress ── */}
           <View className="mb-4 rounded-[24px] bg-white border border-brand-100 overflow-hidden shadow-sm">
             <Pressable onPress={() => setIsGoalExpanded(!isGoalExpanded)} className="px-5 pt-5 pb-5">
@@ -475,6 +540,53 @@ export function ProductDetailScreen({ route, navigation }: Props) {
                        <Text className="text-sm font-black text-brand-900">{profitShortfall > 0 ? formatMoney(expectedRevenue, currencyCode) : '—'}</Text>
                     </View>
                   </View>
+
+                  {batchesPerMonth > 0 && (
+                    <View className="mt-2 flex-row items-center justify-between rounded-2xl bg-brand-50/50 border border-brand-100 p-3">
+                      <View>
+                        <Text className="text-[9px] font-black text-brand-400 uppercase tracking-[2px] mb-1">Batches Needed / Month</Text>
+                        <View className="flex-row items-baseline gap-1">
+                          <Text className="text-[15px] font-black text-brand-900">{batchesPerMonth}</Text>
+                          <Text className="text-[10px] font-bold text-brand-400 uppercase tracking-tighter">batches</Text>
+                        </View>
+                      </View>
+                      <View className="items-end">
+                        <Text className="text-[9px] font-black text-brand-400 uppercase tracking-widest mb-1">Total Units</Text>
+                        <Text className="text-xs font-black text-brand-900">{totalUnitsForGoal} pcs</Text>
+                      </View>
+                    </View>
+                  )}
+
+                  <View className="mt-6 pt-4 border-t border-brand-50">
+                    <Text className="text-[8px] font-black text-brand-400 uppercase tracking-[3px] mb-4">Break-Even Analysis</Text>
+                    
+                    <View className="flex-row items-center justify-between rounded-2xl bg-brand-50/50 border border-brand-100 p-3">
+                      <View>
+                        <Text className="text-[9px] font-black text-brand-400 uppercase tracking-[2px] mb-1">Min Units to Sell</Text>
+                        <View className="flex-row items-baseline gap-1">
+                          <Text className="text-[15px] font-black text-brand-900">{breakEvenUnitsPerBatch}</Text>
+                          <Text className="text-[9px] font-bold text-brand-400 uppercase tracking-tighter">units</Text>
+                        </View>
+                      </View>
+                      <View className="items-end">
+                        <Text className="text-[9px] font-black text-brand-400 uppercase tracking-widest mb-1">Per Batch</Text>
+                        <Text className="text-xs font-black text-brand-900">of {batchSize} pcs</Text>
+                      </View>
+                    </View>
+
+                    <View className="mt-2 flex-row items-center justify-between rounded-2xl bg-brand-50/50 border border-brand-100 p-3">
+                      <View>
+                        <Text className="text-[9px] font-black text-brand-400 uppercase tracking-[2px] mb-1">Batch Must Sell</Text>
+                        <View className="flex-row items-baseline gap-1">
+                          <Text className={`text-[15px] font-black ${breakEvenPct >= 90 ? 'text-red-500' : breakEvenPct >= 70 ? 'text-amber-500' : 'text-emerald-600'}`}>{breakEvenPct}%</Text>
+                        </View>
+                      </View>
+                      <View className="items-end">
+                        <Text className="text-[9px] font-black text-brand-400 uppercase tracking-widest mb-1">Threshold</Text>
+                        <Text className="text-xs font-black text-brand-900">to recover costs</Text>
+                      </View>
+                    </View>
+                  </View>
                 </View>
               )}
             </Pressable>
@@ -517,6 +629,26 @@ export function ProductDetailScreen({ route, navigation }: Props) {
               <SummaryRow label={targetLabel} value={targetValueFormatted} />
               <View className="h-px bg-brand-50 my-2.5" />
               <SummaryRow label="VAT rate" value={`${(vatPercent * 100).toFixed(0)}%`} />
+              <View className="h-px bg-brand-50 my-2.5" />
+              <View className="flex-row items-center justify-between py-0.5">
+                <Text className="flex-1 pr-2 text-[11px] font-semibold text-brand-500">Discount rate</Text>
+                <Pressable onPress={() => { setDiscountInput(String(discountPctDisplay)); setIsEditingDiscount(true); }}>
+                  <View className="flex-row items-center gap-1.5 bg-amber-50 px-3 py-1 rounded-full border border-amber-100">
+                    <Text className="text-[11px] font-black text-amber-700">{discountPctDisplay}%</Text>
+                    <Ionicons name="create-outline" size={12} color="#b45309" />
+                  </View>
+                </Pressable>
+              </View>
+              <View className="h-px bg-brand-50 my-2.5" />
+              <View className="flex-row items-center justify-between py-0.5">
+                <Text className="flex-1 pr-2 text-[11px] font-semibold text-brand-500">Monthly overhead</Text>
+                <Pressable onPress={() => { setOverheadInput(String(monthlyOverhead)); setIsEditingOverhead(true); }}>
+                  <View className="flex-row items-center gap-1.5 bg-blue-50 px-3 py-1 rounded-full border border-blue-100">
+                    <Text className="text-[11px] font-black text-blue-700">{formatMoney(monthlyOverhead, currencyCode)}</Text>
+                    <Ionicons name="create-outline" size={12} color="#1d4ed8" />
+                  </View>
+                </Pressable>
+              </View>
             </View>
           </View>
 
@@ -594,7 +726,7 @@ export function ProductDetailScreen({ route, navigation }: Props) {
           {/* ── Special Discount (PWD / Senior) ── */}
           <View className="mb-4 rounded-[24px] bg-white border border-amber-100 overflow-hidden shadow-sm">
             <View className="bg-amber-600 px-5 py-3">
-              <Text className="text-[8px] font-black text-amber-100 uppercase tracking-[3px]">Special Discount · PWD / Senior — 20% off</Text>
+              <Text className="text-[8px] font-black text-amber-100 uppercase tracking-[3px]">Special Discount · PWD / Senior — {discountPctDisplay}% off</Text>
             </View>
             <View className="p-5 gap-2">
               <SummaryRow label="Discounted price" value={formatMoney(discountedPrice, currencyCode)} />
@@ -611,6 +743,31 @@ export function ProductDetailScreen({ route, navigation }: Props) {
               />
             </View>
           </View>
+
+          {/* ── Monthly Overhead Impact ── */}
+          {monthlyOverhead > 0 && (
+            <View className="mb-4 rounded-[24px] bg-white border border-blue-100 overflow-hidden shadow-sm">
+              <View className="bg-blue-600 px-5 py-3">
+                <Text className="text-[8px] font-black text-blue-100 uppercase tracking-[3px]">Monthly Overhead Impact</Text>
+              </View>
+              <View className="p-5 gap-2">
+                <SummaryRow label="Monthly overhead budget" value={formatMoney(monthlyOverhead, currencyCode)} />
+                <SummaryRow label={`Spread over ${totalUnitsForGoal} units`} value={`${formatMoney(overheadPerUnit, currencyCode)} / unit`} />
+                <View className="h-px bg-brand-50 my-1" />
+                <SummaryRow label="Adjusted unit cost (incl. overhead)" value={formatMoney(adjustedUnitCost, currencyCode)} />
+                <SummaryRow
+                  label="Adjusted profit / unit"
+                  value={formatMoney(adjustedProfitPerUnit, currencyCode)}
+                  color={adjustedProfitPerUnit > 0 ? 'text-emerald-700 font-black text-sm' : 'text-red-500 font-black text-sm'}
+                />
+                <SummaryRow
+                  label="Adjusted margin"
+                  value={`${adjustedMargin.toFixed(1)}%`}
+                  color={adjustedMargin > 0 ? 'text-emerald-700 font-black text-sm' : 'text-red-500 font-black text-sm'}
+                />
+              </View>
+            </View>
+          )}
 
         </View>
       </ScrollView>
@@ -652,7 +809,6 @@ export function ProductDetailScreen({ route, navigation }: Props) {
                   // If user enters 0, we "reset" to the auto-calculated suggested price and save THAT value.
                   const finalPriceToSave = inputVal === 0 ? suggestedSellingPrice : inputVal;
                   await editProduct(product.id, { sellingPrice: finalPriceToSave });
-                  setIsSavingPrice(false);
                   setIsEditingPrice(false);
                 }}
               >
@@ -661,6 +817,90 @@ export function ProductDetailScreen({ route, navigation }: Props) {
                     <>
                       <Ionicons name="checkmark-circle" size={18} color="#fff" />
                       <Text className="font-black text-white uppercase tracking-widest text-[11px]">Save Price</Text>
+                    </>
+                  )}
+                </View>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* ── Discount % Modal ── */}
+      <Modal visible={isEditingDiscount} transparent animationType="fade">
+        <View className="flex-1 justify-center items-center px-6" style={{ backgroundColor: 'rgba(0,0,0,0.6)' }}>
+          <View className="bg-white w-full rounded-[32px] p-6 shadow-2xl pb-8 top-[-5%]">
+            <View className="items-center mb-6">
+              <Text className="text-xl font-black text-brand-900 mb-1">Discount Rate</Text>
+              <Text className="text-[10px] font-bold text-brand-400 text-center uppercase tracking-widest mt-1">
+                Enter the discount percentage (e.g. 20 for 20%)
+              </Text>
+            </View>
+            <View className="flex-row items-center bg-amber-50/50 rounded-[24px] py-4 px-2 border border-amber-100 mb-8">
+              <TextInput
+                className="text-5xl font-black text-amber-900 p-0 flex-1 tracking-tighter h-[55px] text-center"
+                keyboardType="decimal-pad"
+                value={discountInput}
+                onChangeText={setDiscountInput}
+                autoFocus
+                selectTextOnFocus
+              />
+              <Text className="text-3xl font-black text-amber-700 pr-4">%</Text>
+            </View>
+            <View className="flex-row gap-3">
+              <Pressable className="flex-1" onPress={() => setIsEditingDiscount(false)}>
+                <View className="h-14 items-center justify-center rounded-[20px] bg-red-50 border border-red-100">
+                  <Text className="font-bold text-red-500 uppercase tracking-widest text-[11px]">Cancel</Text>
+                </View>
+              </Pressable>
+              <Pressable className="flex-[1.5]" onPress={handleSaveDiscount} disabled={isSavingDiscount}>
+                <View className="h-14 items-center justify-center rounded-[20px] bg-amber-500 flex-row gap-2">
+                  {isSavingDiscount ? <ActivityIndicator color="#fff" size="small" /> : (
+                    <>
+                      <Ionicons name="checkmark-circle" size={18} color="#fff" />
+                      <Text className="font-black text-white uppercase tracking-widest text-[11px]">Save Discount</Text>
+                    </>
+                  )}
+                </View>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* ── Monthly Overhead Modal ── */}
+      <Modal visible={isEditingOverhead} transparent animationType="fade">
+        <View className="flex-1 justify-center items-center px-6" style={{ backgroundColor: 'rgba(0,0,0,0.6)' }}>
+          <View className="bg-white w-full rounded-[32px] p-6 shadow-2xl pb-8 top-[-5%]">
+            <View className="items-center mb-6">
+              <Text className="text-xl font-black text-brand-900 mb-1">Monthly Overhead</Text>
+              <Text className="text-[10px] font-bold text-brand-400 text-center uppercase tracking-widest mt-1">
+                Fixed monthly costs for this product (rent, utilities, etc.)
+              </Text>
+            </View>
+            <View className="flex-row items-center bg-blue-50/50 rounded-[24px] py-4 px-2 border border-blue-100 mb-8">
+              <Text className="text-3xl font-black text-blue-700 pl-4 pr-1">{getCurrencySymbol(currencyCode)}</Text>
+              <TextInput
+                className="text-5xl font-black text-blue-900 p-0 flex-1 tracking-tighter h-[55px]"
+                keyboardType="decimal-pad"
+                value={overheadInput}
+                onChangeText={setOverheadInput}
+                autoFocus
+                selectTextOnFocus
+              />
+            </View>
+            <View className="flex-row gap-3">
+              <Pressable className="flex-1" onPress={() => setIsEditingOverhead(false)}>
+                <View className="h-14 items-center justify-center rounded-[20px] bg-red-50 border border-red-100">
+                  <Text className="font-bold text-red-500 uppercase tracking-widest text-[11px]">Cancel</Text>
+                </View>
+              </Pressable>
+              <Pressable className="flex-[1.5]" onPress={handleSaveOverhead} disabled={isSavingOverhead}>
+                <View className="h-14 items-center justify-center rounded-[20px] bg-blue-600 flex-row gap-2">
+                  {isSavingOverhead ? <ActivityIndicator color="#fff" size="small" /> : (
+                    <>
+                      <Ionicons name="checkmark-circle" size={18} color="#fff" />
+                      <Text className="font-black text-white uppercase tracking-widest text-[11px]">Save Overhead</Text>
                     </>
                   )}
                 </View>

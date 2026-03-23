@@ -46,29 +46,17 @@ export function SalesLoggerScreen() {
   const saveMonthlySale = useSalesStore((state) => state.saveMonthlySale);
   const removeMonthlySale = useSalesStore((state) => state.removeMonthlySale);
   const getMonthlySale = useSalesStore((state) => state.getMonthlySale);
-  
+
   const settings = useSettingsStore((state) => state.settings);
   const saveSettings = useSettingsStore((state) => state.saveSettings);
   const currencyCode = settings.currencyCode;
 
-  const initialPeriodType = useMemo(() => {
-    const t = settings.lastSalesLogType || 'monthly';
-    return (t.charAt(0).toUpperCase() + t.slice(1)) as 'Daily' | 'Weekly' | 'Monthly';
-  }, [settings.lastSalesLogType]);
-
   const [selectedProductId, setSelectedProductId] = useState<number | null>(routeProductId);
-  const [periodType, setPeriodType] = useState<'Daily' | 'Weekly' | 'Monthly'>(initialPeriodType);
-  const [month, setMonth] = useState(getCurrentMonth());
+  const [month, setMonth] = useState(getDailyPeriod());
   const [unitsSoldInput, setUnitsSoldInput] = useState('');
   const [unitsSoldDiscountedInput, setUnitsSoldDiscountedInput] = useState('');
   const [unitsUnsoldInput, setUnitsUnsoldInput] = useState('');
   const [isSaving, setIsSaving] = useState(false);
-
-  useEffect(() => {
-    if (periodType === 'Daily') setMonth(getDailyPeriod());
-    else if (periodType === 'Weekly') setMonth(getWeeklyPeriod());
-    else setMonth(getCurrentMonth());
-  }, [periodType]);
 
   const [modalState, setModalState] = useState<{
     visible: boolean;
@@ -231,7 +219,12 @@ export function SalesLoggerScreen() {
     <View className="flex-1 bg-white">
 
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <ScrollView className="flex-1 px-5" keyboardShouldPersistTaps="handled">
+        <ScrollView 
+          className="flex-1 px-5" 
+          keyboardShouldPersistTaps="handled" 
+          removeClippedSubviews={false}
+          contentContainerStyle={{ paddingBottom: 100 }}
+        >
           <View style={{ height: 20 }} />
 
           {routeProductId ? (
@@ -257,60 +250,46 @@ export function SalesLoggerScreen() {
           )}
 
           <FormSection title="Period & Performance" icon="calendar">
-            <Text className="text-[10px] font-black text-brand-600 uppercase mb-2 tracking-widest px-1">Log Type</Text>
-            <View className="flex-row gap-2 mb-4 px-1">
-               {['Daily', 'Weekly', 'Monthly'].map((type) => (
-                 <OptionChip
-                   key={type}
-                   label={type}
-                   selected={periodType === type}
-                   onPress={() => {
-                     const t = type as 'Daily' | 'Weekly' | 'Monthly';
-                     setPeriodType(t);
-                     void saveSettings({ lastSalesLogType: t.toLowerCase() as any });
-                   }}
-                   size="sm"
-                 />
-               ))}
+            <Text className="text-[10px] font-black text-brand-600 uppercase mb-2 tracking-widest px-1">Logging Date</Text>
+            <View className="rounded-2xl border border-brand-100 bg-brand-50/30 px-4 py-4 mb-6">
+              <Text className="text-base text-brand-900 font-black">Today · {new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}</Text>
             </View>
 
-            <Text className="text-[10px] font-black text-brand-600 uppercase mb-2 tracking-widest px-1">Date / Period String</Text>
-            <TextInput
-              value={month}
-              onChangeText={setMonth}
-              placeholder={periodType === 'Daily' ? 'YYYY-MM-DD' : periodType === 'Weekly' ? 'YYYY-Wxx' : 'YYYY-MM'}
-              className="rounded-2xl border border-brand-100 bg-brand-50/50 px-4 py-4 text-base text-brand-900 font-black mb-4"
-              placeholderTextColor="#adb5bd"
-            />
-            <View className="flex-row gap-3">
-              <View className="flex-1">
-                <Text className="text-[10px] font-black text-brand-600 uppercase mb-2 tracking-widest px-1">Sold (Full)</Text>
+            <View className="gap-4 mb-6">
+              <View>
+                <Text className="text-[10px] font-black text-brand-600 uppercase mb-2 tracking-widest px-1">Sold (Full Price)</Text>
                 <TextInput
                   value={unitsSoldInput}
                   onChangeText={setUnitsSoldInput}
                   keyboardType="number-pad"
                   placeholder="0"
-                  className="rounded-2xl border border-brand-100 bg-brand-50/50 px-3 py-4 text-base text-brand-900 font-black text-center"
+                  placeholderTextColor="#adb5bd"
+                  multiline={false}
+                  className="rounded-2xl border border-brand-100 bg-brand-50/50 w-full px-4 h-16 text-xl text-brand-900 font-black"
                 />
               </View>
-              <View className="flex-1">
-                <Text className="text-[10px] font-black text-emerald-600 uppercase mb-2 tracking-widest px-1">Sold (Disc.)</Text>
+              <View>
+                <Text className="text-[10px] font-black text-emerald-600 uppercase mb-2 tracking-widest px-1">Sold (Discounted)</Text>
                 <TextInput
                   value={unitsSoldDiscountedInput}
                   onChangeText={setUnitsSoldDiscountedInput}
                   keyboardType="number-pad"
                   placeholder="0"
-                  className="rounded-2xl border border-emerald-100 bg-emerald-50/30 px-3 py-4 text-base text-emerald-700 font-black text-center"
+                  placeholderTextColor="#adb5bd"
+                  multiline={false}
+                  className="rounded-2xl border border-emerald-100 bg-emerald-50/30 w-full px-4 h-16 text-xl text-emerald-700 font-black"
                 />
               </View>
-              <View className="flex-1">
-                <Text className="text-[10px] font-black text-brand-600 uppercase mb-2 tracking-widest px-1">Unsold</Text>
+              <View>
+                <Text className="text-[10px] font-black text-brand-600 uppercase mb-2 tracking-widest px-1">Unsold / Wasted</Text>
                 <TextInput
                   value={unitsUnsoldInput}
                   onChangeText={setUnitsUnsoldInput}
                   keyboardType="number-pad"
                   placeholder="0"
-                  className="rounded-2xl border border-brand-100 bg-brand-50/50 px-3 py-4 text-base text-brand-900 font-black text-center"
+                  placeholderTextColor="#adb5bd"
+                  multiline={false}
+                  className="rounded-2xl border border-brand-100 bg-brand-50/50 w-full px-4 h-16 text-xl text-brand-900 font-black"
                 />
               </View>
             </View>

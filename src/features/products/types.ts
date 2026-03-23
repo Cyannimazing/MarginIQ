@@ -16,6 +16,8 @@ export type ProductInput = {
   vatPercent: number;
   pricingMethod: PricingMethod;
   monthlyGoalProfit: number;
+  discountPercent?: number;
+  monthlyOverhead?: number;
   baseCost: number;
   isPinned?: boolean;
   color?: string;
