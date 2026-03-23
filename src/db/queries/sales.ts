@@ -22,6 +22,7 @@ export async function addMonthlySale(input: MonthlySaleInput) {
       productId: input.productId,
       month: input.month,
       unitsSold: input.unitsSold,
+      unitsSoldDiscounted: input.unitsSoldDiscounted,
       unitsUnsold: input.unitsUnsold,
       actualRevenue: input.actualRevenue,
       actualCost: input.actualCost,

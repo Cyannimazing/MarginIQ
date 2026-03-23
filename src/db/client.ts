@@ -144,6 +144,7 @@ runMigrationStatement(`
     product_id INTEGER NOT NULL,
     month TEXT NOT NULL,
     units_sold INTEGER NOT NULL DEFAULT 0,
+    units_sold_discounted INTEGER NOT NULL DEFAULT 0,
     units_unsold INTEGER NOT NULL DEFAULT 0,
     actual_revenue REAL NOT NULL DEFAULT 0,
     actual_cost REAL NOT NULL DEFAULT 0,
@@ -153,6 +154,7 @@ runMigrationStatement(`
     recorded_at TEXT NOT NULL
   );
 `);
+ensureColumn('monthly_sales', 'units_sold_discounted', 'INTEGER', '0');
 ensureColumn('monthly_sales', 'units_unsold', 'INTEGER', '0');
 ensureColumn('monthly_sales', 'actual_profit', 'REAL', '0');
 ensureColumn('monthly_sales', 'target_profit', 'REAL', '0');

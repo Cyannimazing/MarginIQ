@@ -10,6 +10,7 @@ import { OptionChip } from '../components/ui/OptionChip';
 import { useUIStore } from '../stores/uiStore';
 import { Ionicons } from '@expo/vector-icons';
 import { FormSection } from '../components/ui/FormSection';
+import { ActionModal } from '../components/ui/ActionModal';
 
 const parsePercent = (value: string) => {
   const parsed = Number(value);
@@ -38,6 +39,13 @@ export function SettingsScreen() {
   const [pricingMethod, setPricingMethod] = useState<PricingMethod>(
     settings.defaultPricingMethod,
   );
+
+  const [modalState, setModalState] = useState<{
+    visible: boolean;
+    title: string;
+    message: string;
+    isError?: boolean;
+  }>({ visible: false, title: '', message: '' });
 
   useEffect(() => {
     void loadSettings();
@@ -76,31 +84,31 @@ export function SettingsScreen() {
   const handleSave = async () => {
     const trimmedName = businessName.trim();
     if (!trimmedName) {
-      Alert.alert('Business Name Required', 'Please enter your business name.');
+      setModalState({ visible: true, title: 'Name Required', message: 'Please enter your business name.', isError: true });
       return;
     }
 
     const vat = parsePercent(vatInput);
     if (vat === null || vat < 0 || vat > 100) {
-      Alert.alert('Invalid VAT', 'VAT must be between 0 and 100.');
+      setModalState({ visible: true, title: 'Invalid VAT', message: 'VAT must be between 0 and 100.', isError: true });
       return;
     }
 
     const margin = parsePercent(marginInput);
     if (margin === null || margin < 0 || margin >= 100) {
-      Alert.alert('Invalid Margin', 'Default margin must be from 0 to less than 100.');
+      setModalState({ visible: true, title: 'Invalid Margin', message: 'Default margin must be from 0 to less than 100.', isError: true });
       return;
     }
 
     const markup = parsePercent(markupInput);
     if (markup === null || markup < 0) {
-      Alert.alert('Invalid Markup', 'Default markup must be 0 or greater.');
+      setModalState({ visible: true, title: 'Invalid Markup', message: 'Default markup must be 0 or greater.', isError: true });
       return;
     }
 
     const fixedProfit = parsePercent(fixedProfitInput);
     if (fixedProfit === null || fixedProfit < 0) {
-      Alert.alert('Invalid Profit', 'Default fixed profit must be 0 or greater.');
+      setModalState({ visible: true, title: 'Invalid Profit', message: 'Default fixed profit must be 0 or greater.', isError: true });
       return;
     }
 
@@ -114,9 +122,9 @@ export function SettingsScreen() {
         defaultTargetFixedProfitAmount: fixedProfit,
         defaultPricingMethod: pricingMethod,
       });
-      Alert.alert('Success', 'Settings saved successfully.');
+      setModalState({ visible: true, title: 'Success', message: 'Business settings saved.' });
     } catch {
-      Alert.alert('Save Failed', 'Unable to save settings. Please try again.');
+      setModalState({ visible: true, title: 'Save Failed', message: 'Unable to save settings. Please try again.', isError: true });
     }
   };
 
@@ -137,7 +145,7 @@ export function SettingsScreen() {
               value={businessName}
               onChangeText={setBusinessName}
               placeholder="Your Business Name"
-              className="rounded-[24px] border border-brand-100 bg-white px-6 py-5 text-lg text-brand-950 font-black shadow-sm"
+              className="rounded-[24px] border border-brand-100 bg-white px-6 py-5 text-lg text-brand-900 font-black shadow-sm"
               placeholderTextColor="#cbd5e1"
             />
           </FormSection>
@@ -147,7 +155,7 @@ export function SettingsScreen() {
 
             <Pressable onPress={() => setIsCurrencyModalOpen(true)}>
               <View className="flex-row items-center justify-between rounded-[24px] border border-brand-100 bg-white px-6 py-5 shadow-sm mb-2">
-                <Text className="text-lg text-brand-950 font-black">
+                <Text className="text-lg text-brand-900 font-black">
                   {currencyCode}
                 </Text>
                 <View className="flex-row items-center gap-2">
@@ -167,7 +175,7 @@ export function SettingsScreen() {
                   value={marginInput}
                   onChangeText={setMarginInput}
                   keyboardType="numeric"
-                  className="rounded-[24px] border border-brand-100 bg-white px-6 py-4 text-base text-brand-950 font-black shadow-sm"
+                  className="rounded-[24px] border border-brand-100 bg-white px-6 py-4 text-base text-brand-900 font-black shadow-sm"
                   placeholderTextColor="#cbd5e1"
                 />
               </View>
@@ -177,7 +185,7 @@ export function SettingsScreen() {
                   value={markupInput}
                   onChangeText={setMarkupInput}
                   keyboardType="numeric"
-                  className="rounded-[24px] border border-brand-100 bg-white px-6 py-4 text-base text-brand-950 font-black shadow-sm"
+                  className="rounded-[24px] border border-brand-100 bg-white px-6 py-4 text-base text-brand-900 font-black shadow-sm"
                   placeholderTextColor="#cbd5e1"
                 />
               </View>
@@ -187,7 +195,7 @@ export function SettingsScreen() {
                   value={fixedProfitInput}
                   onChangeText={setFixedProfitInput}
                   keyboardType="decimal-pad"
-                  className="rounded-[24px] border border-brand-100 bg-white px-6 py-4 text-base text-brand-950 font-black shadow-sm"
+                  className="rounded-[24px] border border-brand-100 bg-white px-6 py-4 text-base text-brand-900 font-black shadow-sm"
                   placeholderTextColor="#cbd5e1"
                 />
               </View>
@@ -197,7 +205,7 @@ export function SettingsScreen() {
                   value={vatInput}
                   onChangeText={setVatInput}
                   keyboardType="numeric"
-                  className="rounded-[24px] border border-brand-100 bg-white px-6 py-4 text-base text-brand-950 font-black shadow-sm"
+                  className="rounded-[24px] border border-brand-100 bg-white px-6 py-4 text-base text-brand-900 font-black shadow-sm"
                   placeholderTextColor="#cbd5e1"
                 />
               </View>
@@ -234,7 +242,7 @@ export function SettingsScreen() {
             <View className="flex-row items-center bg-brand-50/50 rounded-[24px] px-4 py-3 border border-brand-100 mb-2">
               <Ionicons name="search" size={20} color="#94a3b8" />
               <TextInput
-                className="flex-1 ml-3 text-base text-brand-950 font-bold"
+                className="flex-1 ml-3 text-base text-brand-900 font-bold"
                 placeholder="Search global currencies..."
                 placeholderTextColor="#94a3b8"
                 autoFocus
@@ -266,7 +274,7 @@ export function SettingsScreen() {
                       <Text className="text-sm font-black text-brand-900">{item.symbol}</Text>
                     </View>
                     <View className="flex-1">
-                      <Text className="text-base font-black text-brand-950">{item.code}</Text>
+                      <Text className="text-base font-black text-brand-900">{item.code}</Text>
                       <Text className="text-[11px] font-bold text-slate-500 tracking-wide mt-0.5" numberOfLines={1}>{item.name}</Text>
                     </View>
                     {isActive && <Ionicons name="checkmark-circle" size={24} color="#16a34a" />}
@@ -277,6 +285,14 @@ export function SettingsScreen() {
           />
         </SafeAreaView>
       </Modal>
+
+      <ActionModal
+        visible={modalState.visible}
+        title={modalState.title}
+        message={modalState.message}
+        onPrimaryAction={() => setModalState(prev => ({ ...prev, visible: false }))}
+        isDestructive={!!modalState.isError}
+      />
 
     </View>
   );

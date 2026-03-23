@@ -310,9 +310,9 @@ export function ProductAddIngredientScreen({ route, navigation }: Props) {
         <ScrollView className="flex-1 px-6" keyboardShouldPersistTaps="handled">
           <View className="py-8">
             <Text className="text-[10px] font-black text-brand-400 uppercase tracking-[4px] mb-2 px-1">Linking Resources To</Text>
-            <Text className="text-3xl font-black text-brand-950 leading-tight px-1">{product?.name || 'Product'}</Text>
+            <Text className="text-3xl font-black text-brand-900 leading-tight px-1">{product?.name || 'Product'}</Text>
             <View className="flex-row items-center mt-2 px-1">
-              <View className="bg-brand-950 px-3 py-1 rounded-full">
+              <View className="bg-brand-900 px-3 py-1 rounded-full">
                 <Text className="text-[10px] font-black text-white uppercase tracking-widest">{product?.category || 'General'}</Text>
               </View>
             </View>
@@ -384,7 +384,7 @@ export function ProductAddIngredientScreen({ route, navigation }: Props) {
                 {/* Batch Total Footer */}
                 <View className="bg-brand-100/30 px-4 py-3 border-t border-brand-100/50 flex-row justify-between items-center">
                    <Text className="text-[10px] font-black text-brand-900 uppercase tracking-widest">Total Selection Cost</Text>
-                   <Text className="text-lg font-black text-brand-950">
+                   <Text className="text-lg font-black text-brand-900">
                       {formatMoney(selectedItems.reduce((sum, item) => {
                         const ing = ingredients.find(i => i.id === item.ingredientId) as any;
                         const pi = productIngredients.find(p => p.ingredientId === item.ingredientId) as any;
@@ -462,7 +462,7 @@ export function ProductAddIngredientScreen({ route, navigation }: Props) {
                                 className={`flex-row items-center p-4 ${idx > 0 ? 'border-t border-brand-100/30' : ''}`}
                               >
                                 <View className="flex-1 mr-3">
-                                  <Text className="text-[11px] font-black text-brand-950 mb-1" numberOfLines={1}>{pi.ingredientName}</Text>
+                                  <Text className="text-[11px] font-black text-brand-900 mb-1" numberOfLines={1}>{pi.ingredientName}</Text>
                                   <Text className="text-[10px] font-black text-brand-400 uppercase tracking-widest">
                                      {pi.quantityUsed}{pi.ingredientUnit} × {formatMoney(getTrueUnitCost(pi), currencyCode, 3)}
                                   </Text>
@@ -495,7 +495,7 @@ export function ProductAddIngredientScreen({ route, navigation }: Props) {
                             {/* Group Summary Footer */}
                             <View className="bg-brand-100/30 px-4 py-3 border-t border-brand-100/50 flex-row justify-between items-center">
                               <Text className="text-[10px] font-black text-brand-900 uppercase tracking-widest">{costType} Total</Text>
-                              <Text className="text-lg font-black text-brand-950">{formatMoney(groupTotal, currencyCode)}</Text>
+                              <Text className="text-lg font-black text-brand-900">{formatMoney(groupTotal, currencyCode)}</Text>
                             </View>
                           </View>
                         )}

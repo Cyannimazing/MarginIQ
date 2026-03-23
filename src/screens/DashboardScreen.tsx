@@ -27,7 +27,7 @@ export default function DashboardScreen({ navigation }: Props) {
   const activeFilter = useUIStore((state) => state.activeFilter);
   const setActiveFilter = (filter: string) => useUIStore.getState().setActiveFilter(filter);
   const viewMode = useUIStore((state) => state.viewMode);
-  const [selectedProduct, setSelectedProduct] = useState<any>(null);
+  const [selectedProductId, setSelectedProductId] = useState<number | null>(null);
 
   const [modalState, setModalState] = useState<{
     visible: boolean;
@@ -85,6 +85,11 @@ export default function DashboardScreen({ navigation }: Props) {
       return 0;
     });
   }, [currentList, activeFilter]);
+
+  const currentProduct = useMemo(() => {
+    if (selectedProductId === null) return null;
+    return products.find(p => p.id === selectedProductId) || trashProducts.find(p => p.id === selectedProductId) || null;
+  }, [products, trashProducts, selectedProductId]);
 
   const handleAction = async (action: () => Promise<void>) => {
     try {
@@ -152,8 +157,8 @@ export default function DashboardScreen({ navigation }: Props) {
           <View className="px-6 mb-4">
             <ProductCard
               product={item}
-              onPress={() => setSelectedProduct(item)}
-              onLongPress={(p) => setSelectedProduct(p)}
+              onPress={() => setSelectedProductId(item.id)}
+              onLongPress={(p) => setSelectedProductId(p.id)}
               onChevronPress={() => navigation.navigate('ProductDetail', { productId: item.id })}
               earned={getProductEarned(item.id)}
               currencyCode={currencyCode}
@@ -172,9 +177,9 @@ export default function DashboardScreen({ navigation }: Props) {
       />
 
       <ProductActionModal
-        visible={!!selectedProduct}
-        product={selectedProduct}
-        onClose={() => setSelectedProduct(null)}
+        visible={!!selectedProductId}
+        product={currentProduct}
+        onClose={() => setSelectedProductId(null)}
         onPin={(id) => handleAction(() => togglePin(id))}
         onArchive={(id) => handleAction(() => toggleArchive(id))}
         onColorChange={(id, color) => handleAction(() => updateColor(id, color))}

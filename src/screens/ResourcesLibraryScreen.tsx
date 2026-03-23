@@ -57,7 +57,7 @@ export function ResourcesLibraryScreen({ navigation }: Props) {
           <View className="flex-row items-center bg-white rounded-[24px] px-4 py-3 border border-brand-100 shadow-sm">
             <Ionicons name="search" size={20} color="#94a3b8" />
             <TextInput
-              className="flex-1 ml-3 text-base text-brand-950 font-bold"
+              className="flex-1 ml-3 text-base text-brand-900 font-bold"
               placeholder="Search resources..."
               placeholderTextColor="#94a3b8"
               value={searchQuery}

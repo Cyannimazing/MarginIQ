@@ -218,7 +218,7 @@ const s = StyleSheet.create({
   logoName: {
     fontSize: 24,
     fontWeight: '900',
-    color: '#052e16',
+    color: '#14532d',
     letterSpacing: -1,
   },
   logoSubtitle: {

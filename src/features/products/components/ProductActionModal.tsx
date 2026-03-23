@@ -44,9 +44,12 @@ export function ProductActionModal({
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(SCREEN_HEIGHT)).current;
 
+  const [selectedColor, setSelectedColor] = useState(product?.color || '#ffffff');
+
   useEffect(() => {
-    if (visible) {
+    if (visible && product) {
       setInternalVisible(true);
+      setSelectedColor(product.color || '#ffffff');
       Animated.parallel([
         Animated.timing(fadeAnim, { toValue: 1, duration: 280, useNativeDriver: true }),
         Animated.spring(slideAnim, {
@@ -63,7 +66,7 @@ export function ProductActionModal({
         Animated.timing(slideAnim, { toValue: SCREEN_HEIGHT, duration: 280, useNativeDriver: true }),
       ]).start(() => setInternalVisible(false));
     }
-  }, [visible, fadeAnim, slideAnim]);
+  }, [visible, fadeAnim, slideAnim, product?.color]);
 
   if (!product) return null;
 
@@ -183,9 +186,15 @@ export function ProductActionModal({
 
                     {/* Color swatches */}
                     {COLORS.map((color) => {
-                      const isSelected = (product.color || '#ffffff') === color;
+                      const isSelected = selectedColor === color;
                       return (
-                        <Pressable key={color} onPress={() => onColorChange(product.id, color)}>
+                        <Pressable 
+                          key={color} 
+                          onPress={() => {
+                            setSelectedColor(color);
+                            onColorChange(product.id, color);
+                          }}
+                        >
                           <View
                             style={{
                               backgroundColor: color,

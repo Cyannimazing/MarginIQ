@@ -6,6 +6,7 @@ export type MonthlySaleInput = {
   productId: number;
   month: string;
   unitsSold: number;
+  unitsSoldDiscounted: number;
   unitsUnsold: number;
   actualRevenue: number;
   actualCost: number;

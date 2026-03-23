@@ -24,7 +24,7 @@ type Props = NativeStackScreenProps<RootStackParamList, 'ProductDetail'>;
 const PRICING_METHOD_LABELS: Record<string, string> = {
   margin: 'Margin %',
   markup: 'Markup %',
-  fixed: 'Fixed Profit',
+  fixed: 'Fixed Batch Profit',
 };
 
 export function ProductDetailScreen({ route, navigation }: Props) {
@@ -50,19 +50,21 @@ export function ProductDetailScreen({ route, navigation }: Props) {
   const currentMonthStr = getCurrentMonth();
   
   const monthlyGoalRecords = useMemo(() => {
-    const records: Record<number, { earnedSoFar: number }> = {};
+    const records: Record<number, { earnedSoFar: number; unitsSoldSoFar: number; revenueSoFar: number }> = {};
     monthlySales.forEach((sale) => {
       const matchMonth = sale.month.match(/^\d{4}-\d{2}-\d{2}$/) ? sale.month.substring(0, 7) : sale.month;
       if (matchMonth === currentMonthStr) {
         const pId = Number(sale.productId);
-        if (!records[pId]) records[pId] = { earnedSoFar: 0 };
-        records[pId].earnedSoFar += sale.actualRevenue;
+        if (!records[pId]) records[pId] = { earnedSoFar: 0, unitsSoldSoFar: 0, revenueSoFar: 0 };
+        records[pId].earnedSoFar += sale.actualProfit;
+        records[pId].revenueSoFar += sale.actualRevenue;
+        records[pId].unitsSoldSoFar += (Number(sale.unitsSold) || 0) + (Number(sale.unitsSoldDiscounted) || 0);
       }
     });
     return records;
   }, [monthlySales, currentMonthStr]);
 
-  const goalRecord = monthlyGoalRecords[productId] || { earnedSoFar: 0 };
+  const goalRecord = monthlyGoalRecords[productId] || { earnedSoFar: 0, unitsSoldSoFar: 0, revenueSoFar: 0 };
   const currencyCode = settings.currencyCode;
 
   const [isGoalExpanded, setIsGoalExpanded] = useState(false);
@@ -125,6 +127,7 @@ export function ProductDetailScreen({ route, navigation }: Props) {
     perPieceOther,
     perPieceTotalCost,
     sellingPrice,
+    suggestedSellingPrice,
     priceBeforeVat,
     vatAmount,
     profitPerPiece,
@@ -161,17 +164,21 @@ export function ProductDetailScreen({ route, navigation }: Props) {
     const targetMarginVal = isFinite(Number(product?.targetMargin)) ? Number(product?.targetMargin) : 0;
     const vPercent = isFinite(Number(product?.vatPercent)) ? Number(product?.vatPercent) : 0;
 
+    let suggestedPreVat = pPieceTotalCost;
+    if (product?.pricingMethod === 'markup') {
+      suggestedPreVat = pPieceTotalCost * (1 + targetMarginVal);
+    } else if (product?.pricingMethod === 'fixed') {
+      const profitPerUnit = targetMarginVal / bSize;
+      suggestedPreVat = pPieceTotalCost + profitPerUnit;
+    } else {
+      const denom = (1 - targetMarginVal);
+      suggestedPreVat = (denom > 0 && denom < 1) ? (pPieceTotalCost / denom) : (pPieceTotalCost * 1.5);
+    }
+
+    const suggestedSellingPrice = suggestedPreVat * (1 + vPercent);
+
     if (sPrice <= 0) {
-      let suggestedPreVat = pPieceTotalCost;
-      if (product?.pricingMethod === 'markup') {
-        suggestedPreVat = pPieceTotalCost * (1 + targetMarginVal);
-      } else if (product?.pricingMethod === 'fixed') {
-        suggestedPreVat = pPieceTotalCost + targetMarginVal;
-      } else {
-        const denom = (1 - targetMarginVal);
-        suggestedPreVat = (denom > 0 && denom < 1) ? (pPieceTotalCost / denom) : (pPieceTotalCost * 1.5);
-      }
-      sPrice = suggestedPreVat * (1 + vPercent);
+      sPrice = suggestedSellingPrice;
     }
 
     sPrice = Math.max(0, sPrice);
@@ -231,7 +238,8 @@ export function ProductDetailScreen({ route, navigation }: Props) {
       preVatDiscountedPrice: isFinite(preVatDP) ? preVatDP : 0,
       profitIfDiscounted: isFinite(pIfDiscounted) ? pIfDiscounted : 0,
       marginIfDiscounted: isFinite(mIfDiscounted) ? mIfDiscounted : 0,
-      categoryTotals: catTotals
+      categoryTotals: catTotals,
+      suggestedSellingPrice: isFinite(suggestedSellingPrice) ? suggestedSellingPrice : 0,
     };
   }, [product, productIngredients, goalRecord]);
 
@@ -277,17 +285,35 @@ export function ProductDetailScreen({ route, navigation }: Props) {
   const lastDayOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
   const currentDay = now.getDate();
   const daysRemaining = Math.max(lastDayOfMonth - currentDay + 1, 1);
-  const dailyRevenueNeeded = remainingRevenue / daysRemaining;
-  const dailyItemsNeeded = sellingPrice > 0 ? Math.ceil(dailyRevenueNeeded / sellingPrice) : 0;
 
-  const expectedTotalProfit = sellingPrice > 0 ? (product.monthlyGoalProfit / sellingPrice) * profitPerPiece : 0;
+  // Today's logged units — used to freeze the daily target denominator
+  const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  const unitsSoldToday = monthlySales
+    .filter(s => Number(s.productId) === productId && s.month === todayStr)
+    .reduce((sum, s) => sum + (Number(s.unitsSold) || 0) + (Number(s.unitsSoldDiscounted) || 0), 0);
+
+  // Rolling daily target: calculated from units sold BEFORE today so it stays fixed all day
+  const totalUnitsForGoal = profitPerPiece > 0 ? Math.ceil(product.monthlyGoalProfit / profitPerPiece) : 0;
+  const unitsSoldBeforeToday = Math.max(0, goalRecord.unitsSoldSoFar - unitsSoldToday);
+  const unitsRemainingAtDayStart = Math.max(0, totalUnitsForGoal - unitsSoldBeforeToday);
+  const dailyItemsNeeded = unitsRemainingAtDayStart > 0 ? Math.ceil(unitsRemainingAtDayStart / daysRemaining) : 0;
+  const unitsRemaining = Math.max(0, totalUnitsForGoal - goalRecord.unitsSoldSoFar);
+  const isGoalComplete = product.monthlyGoalProfit > 0 && unitsRemaining === 0;
+  const remainingTodayUnits = Math.max(0, dailyItemsNeeded - unitsSoldToday);
+
+  const profitShortfall = Math.max(0, product.monthlyGoalProfit - goalRecord.earnedSoFar);
+  const expectedRevenue = unitsRemaining * sellingPrice;
+
+  // Pace Calculation
+  const targetUnitsByToday = (totalUnitsForGoal / lastDayOfMonth) * currentDay;
+  const isAheadOfPace = goalRecord.unitsSoldSoFar >= targetUnitsByToday;
 
   const targetMargin = isFinite(Number(product.targetMargin)) ? Number(product.targetMargin) : 0;
   const vatPercent = isFinite(Number(product.vatPercent)) ? Number(product.vatPercent) : 0;
   const batchSize = Math.max(Number(product.batchSize || 1), 1);
 
   const targetLabel = product.pricingMethod === 'markup' ? 'Target markup'
-    : product.pricingMethod === 'fixed' ? 'Target profit (fixed)'
+    : product.pricingMethod === 'fixed' ? 'Target profit (batch)'
       : 'Target margin';
 
   const targetValueFormatted = product.pricingMethod === 'fixed'
@@ -385,46 +411,68 @@ export function ProductDetailScreen({ route, navigation }: Props) {
 
               <View className="flex-row items-end justify-between mb-3">
                 <View>
-                  <Text className="text-[10px] font-semibold text-brand-400 mb-0.5">Revenue this month</Text>
-                  <Text className="text-2xl font-black text-brand-900">{formatMoney(goalRecord.earnedSoFar, currencyCode)}</Text>
+                  <Text className="text-[10px] font-semibold text-brand-400 mb-0.5">Profit this month</Text>
+                  <View className="flex-row items-baseline gap-2">
+                    <Text className="text-2xl font-black text-brand-900">{formatMoney(goalRecord.earnedSoFar, currencyCode)}</Text>
+                    {goalRecord.revenueSoFar > 0 && (
+                      <Text className="text-[9px] font-bold text-brand-400">/ {formatMoney(goalRecord.revenueSoFar, currencyCode)} Gross</Text>
+                    )}
+                  </View>
                 </View>
                 <View className="items-end">
-                  <Text className="text-[10px] font-semibold text-brand-400 mb-0.5">Revenue goal</Text>
+                  <Text className="text-[10px] font-semibold text-brand-400 mb-0.5">Profit goal</Text>
                   <Text className="text-sm font-black text-brand-900">{formatMoney(product.monthlyGoalProfit, currencyCode)}</Text>
                 </View>
               </View>
               <View className="h-2.5 bg-brand-50 rounded-full overflow-hidden">
                 <View className="h-full bg-brand-900 rounded-full" style={{ width: `${progress}%` as any }} />
               </View>
-              <Text className="text-[10px] font-semibold text-brand-400 mt-2 text-right mb-4">{progress.toFixed(0)}% complete</Text>
+              <View className="flex-row justify-between items-center mt-2 mb-4">
+                <View className="flex-row items-center gap-1.5">
+                  <View className={`w-2 h-2 rounded-full ${isAheadOfPace ? 'bg-emerald-500' : 'bg-amber-500'}`} />
+                  <Text className={`text-[9px] font-black uppercase tracking-widest ${isAheadOfPace ? 'text-emerald-600' : 'text-amber-600'}`}>
+                    {isAheadOfPace ? 'Ahead of Pace' : 'Behind Pace'}
+                  </Text>
+                </View>
+                <Text className="text-[10px] font-semibold text-brand-400 text-right">{progress.toFixed(0)}% complete</Text>
+              </View>
 
               {product.monthlyGoalProfit > 0 && (
                 <View className="mb-2">
                   <View className="flex-row items-center justify-between rounded-2xl bg-brand-50/50 border border-brand-100 p-3">
                     <View>
-                      <Text className="text-[9px] font-black text-brand-400 uppercase tracking-[2px] mb-1">Target for next {daysRemaining} days</Text>
-                      {remainingRevenue > 0 ? (
-                         <Text className="text-[13px] font-black text-brand-950">Sell {dailyItemsNeeded} item{dailyItemsNeeded !== 1 ? 's' : ''} / day</Text>
+                      <Text className="text-[9px] font-black text-brand-400 uppercase tracking-[2px] mb-1">Daily Units Needed</Text>
+                      {isGoalComplete ? (
+                        <Text className="text-[13px] font-black text-emerald-600">Goal Complete! 🎉</Text>
                       ) : (
-                         <Text className="text-[13px] font-black text-emerald-600">Revenue Goal Met! 🎉</Text>
+                        <View className="flex-row items-baseline gap-1">
+                          <Text className="text-[15px] font-black text-brand-900">
+                            {remainingTodayUnits}
+                          </Text>
+                          <Text className="text-[13px] font-bold text-brand-300">/</Text>
+                          <Text className="text-[13px] font-black text-brand-500">
+                            {dailyItemsNeeded}
+                          </Text>
+                          <Text className="text-[10px] font-bold text-brand-400 uppercase tracking-tighter">units/day</Text>
+                        </View>
                       )}
                     </View>
-                    {remainingRevenue > 0 && (
+                    {!isGoalComplete && (
                       <View className="items-end">
-                        <Text className="text-[9px] font-black text-brand-400 uppercase tracking-widest mb-1">Pace needed</Text>
-                        <Text className="text-xs font-black text-brand-900">{formatMoney(dailyRevenueNeeded, currencyCode)} / day</Text>
+                        <Text className="text-[9px] font-black text-brand-400 uppercase tracking-widest mb-1">{daysRemaining} day{daysRemaining !== 1 ? 's' : ''} left</Text>
+                        <Text className="text-xs font-black text-brand-900">{unitsRemaining} unit{unitsRemaining !== 1 ? 's' : ''} to go</Text>
                       </View>
                     )}
                   </View>
                   
                   <View className="mt-2 flex-row items-center justify-between rounded-2xl bg-brand-50/50 border border-brand-100 p-3">
                     <View className="flex-1">
-                       <Text className="text-[9px] font-black text-brand-400 uppercase tracking-[2px] mb-1">Projected Net Profit</Text>
-                       <Text className="text-xs font-black text-brand-950">If revenue goal is met</Text>
+                       <Text className="text-[9px] font-black text-brand-400 uppercase tracking-[2px] mb-1">Profit Shortfall</Text>
+                       <Text className="text-xs font-black text-brand-900">{profitShortfall > 0 ? `${formatMoney(profitShortfall, currencyCode)} still needed` : 'Goal Achieved!'}</Text>
                     </View>
                     <View className="items-end">
-                       <Text className="text-[9px] font-black text-emerald-500 uppercase tracking-widest mb-1">Expected</Text>
-                       <Text className="text-sm font-black text-emerald-600">+{formatMoney(expectedTotalProfit, currencyCode)}</Text>
+                       <Text className="text-[9px] font-black text-brand-400 uppercase tracking-widest mb-1">Revenue to Target</Text>
+                       <Text className="text-sm font-black text-brand-900">{profitShortfall > 0 ? formatMoney(expectedRevenue, currencyCode) : '—'}</Text>
                     </View>
                   </View>
                 </View>
@@ -434,11 +482,11 @@ export function ProductDetailScreen({ route, navigation }: Props) {
             {isGoalExpanded && (
               <View className="px-5 pb-5">
                 <View className="pt-5 border-t border-brand-50">
-                  <Text className="text-[10px] font-bold text-brand-900 uppercase tracking-widest mb-2">Set New Target ({currencyCode})</Text>
+                  <Text className="text-[10px] font-bold text-brand-900 uppercase tracking-widest mb-2">Set Profit Goal ({currencyCode})</Text>
                   <View className="flex-row items-center gap-2">
                     <View className="flex-1 h-12 px-4 rounded-2xl bg-brand-50/50 border border-brand-100 justify-center">
                       <TextInput
-                        className="text-sm font-black text-brand-950 p-0"
+                        className="text-sm font-black text-brand-900 p-0"
                         keyboardType="decimal-pad"
                         value={goalInput}
                         onChangeText={setGoalInput}
@@ -573,7 +621,7 @@ export function ProductDetailScreen({ route, navigation }: Props) {
             <View className="items-center mb-6">
               <Text className="text-xl font-black text-brand-900 mb-1">Custom Selling Price</Text>
               <Text className="text-[10px] font-bold text-brand-400 text-center uppercase tracking-widest mt-1">
-                Enter 0 to restore MarginIQ auto-calculations
+                Enter 0 to reset to the current suggested price
               </Text>
             </View>
 
@@ -600,7 +648,10 @@ export function ProductDetailScreen({ route, navigation }: Props) {
                 onPress={async () => {
                   if (isSavingPrice || !product) return;
                   setIsSavingPrice(true);
-                  await editProduct(product.id, { sellingPrice: Number(priceInput) || 0 });
+                  const inputVal = Number(priceInput) || 0;
+                  // If user enters 0, we "reset" to the auto-calculated suggested price and save THAT value.
+                  const finalPriceToSave = inputVal === 0 ? suggestedSellingPrice : inputVal;
+                  await editProduct(product.id, { sellingPrice: finalPriceToSave });
                   setIsSavingPrice(false);
                   setIsEditingPrice(false);
                 }}

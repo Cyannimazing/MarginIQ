@@ -63,6 +63,7 @@ export const monthlySales = sqliteTable('monthly_sales', {
   productId: integer('product_id').notNull(),
   month: text('month').notNull(),
   unitsSold: integer('units_sold').notNull().default(0),
+  unitsSoldDiscounted: integer('units_sold_discounted').notNull().default(0),
   unitsUnsold: integer('units_unsold').notNull().default(0),
   actualRevenue: real('actual_revenue').notNull().default(0),
   actualCost: real('actual_cost').notNull().default(0),

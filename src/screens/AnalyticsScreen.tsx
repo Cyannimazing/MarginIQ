@@ -133,7 +133,7 @@ export function AnalyticsScreen({ navigation }: Props) {
           
           <View className="flex-row items-center justify-between mb-3">
             <Text className="text-xs font-bold text-slate-500 uppercase tracking-wide">Latest Month Profit</Text>
-            <Text className="text-sm font-black text-brand-950">{formatMoney(latest?.profit || 0, currencyCode)}</Text>
+            <Text className="text-sm font-black text-brand-900">{formatMoney(latest?.profit || 0, currencyCode)}</Text>
           </View>
           <View className="flex-row items-center justify-between mb-3">
             <Text className="text-xs font-bold text-slate-500 uppercase tracking-wide">MoM Growth %</Text>
@@ -153,7 +153,7 @@ export function AnalyticsScreen({ navigation }: Props) {
           
           <View className="flex-row items-center justify-between mb-3">
             <Text className="text-xs font-bold text-slate-500 uppercase tracking-wide">Target</Text>
-            <Text className="text-sm font-black text-brand-950">{formatMoney(goalTarget, currencyCode)}</Text>
+            <Text className="text-sm font-black text-brand-900">{formatMoney(goalTarget, currencyCode)}</Text>
           </View>
           <View className="flex-row items-center justify-between mb-3">
             <Text className="text-xs font-bold text-slate-500 uppercase tracking-wide">Earned</Text>
@@ -161,7 +161,7 @@ export function AnalyticsScreen({ navigation }: Props) {
           </View>
           <View className="flex-row items-center justify-between mb-5">
             <Text className="text-xs font-bold text-slate-500 uppercase tracking-wide">Remaining</Text>
-            <Text className="text-sm font-black text-brand-950">{formatMoney(goalRemaining, currencyCode)}</Text>
+            <Text className="text-sm font-black text-brand-900">{formatMoney(goalRemaining, currencyCode)}</Text>
           </View>
           
           <View className="h-3 rounded-full bg-slate-100 overflow-hidden">
@@ -178,7 +178,7 @@ export function AnalyticsScreen({ navigation }: Props) {
           
           {visibleAggregates.map((item) => (
             <View key={item.month} className="mb-8">
-              <Text className="text-sm font-black text-brand-950 mb-3">{item.month}</Text>
+              <Text className="text-sm font-black text-brand-900 mb-3">{item.month}</Text>
 
               <Text className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Revenue</Text>
               <View className="h-2.5 rounded-full bg-slate-100 mb-3">
@@ -225,7 +225,7 @@ export function AnalyticsScreen({ navigation }: Props) {
           {productPerformance.map((item) => (
             <View key={item.productId} className="flex-row items-center justify-between bg-brand-50/50 p-4 rounded-[20px] mb-2 border border-brand-100">
               <View className="flex-1 mr-3">
-                <Text className="text-sm font-black text-brand-950" numberOfLines={1}>{item.productName}</Text>
+                <Text className="text-sm font-black text-brand-900" numberOfLines={1}>{item.productName}</Text>
                 <Text className="text-[10px] font-bold text-brand-600 uppercase tracking-widest mt-1">
                   Net: {formatMoney(item.profit, currencyCode)}
                 </Text>

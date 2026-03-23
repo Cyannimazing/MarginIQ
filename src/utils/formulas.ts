@@ -34,9 +34,11 @@ export function calculateMinimumPrice(totalCost: number) {
 export function calculateSuggestedPrice(
   totalCost: number,
   targetValue: number,
-  method: 'margin' | 'markup' | 'fixed' = 'margin'
+  method: 'margin' | 'markup' | 'fixed' = 'margin',
+  batchSize: number = 1
 ) {
   const safeCost = normalizeAmount(totalCost);
+  const safeBatchSize = Math.max(batchSize, 1);
 
   if (method === 'margin') {
     const safeMargin = normalizeMargin(targetValue);
@@ -46,7 +48,9 @@ export function calculateSuggestedPrice(
     return roundTo(safeCost * (1 + safeMarkup));
   } else if (method === 'fixed') {
     const safeFixed = Math.max(0, targetValue);
-    return roundTo(safeCost + safeFixed);
+    // targetValue is treated as TOTAL batch profit, so we divide by batchSize to get per-unit profit
+    const fixedPerUnit = safeFixed / safeBatchSize;
+    return roundTo(safeCost + fixedPerUnit);
   }
 
   return safeCost;

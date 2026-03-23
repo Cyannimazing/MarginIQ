@@ -170,7 +170,7 @@ export function IngredientFormScreen({ route, navigation }: Props) {
                     onChangeText={onChange}
                     onBlur={onBlur}
                     placeholder="e.g. Organic Milk or Gas Delivery"
-                    className="rounded-[24px] border border-brand-100 bg-white px-6 py-5 text-lg text-brand-950 font-black shadow-sm"
+                    className="rounded-[24px] border border-brand-100 bg-white px-6 py-5 text-lg text-brand-900 font-black shadow-sm"
                     placeholderTextColor="#cbd5e1"
                   />
                 )}
@@ -211,7 +211,7 @@ export function IngredientFormScreen({ route, navigation }: Props) {
                       onBlur={onBlur}
                       keyboardType="decimal-pad"
                       placeholder="1.0"
-                      className="rounded-[24px] border border-brand-100 bg-white px-6 py-5 text-xl text-brand-950 font-black shadow-sm"
+                      className="rounded-[24px] border border-brand-100 bg-white px-6 py-5 text-xl text-brand-900 font-black shadow-sm"
                     />
                   )}
                 />
@@ -228,7 +228,7 @@ export function IngredientFormScreen({ route, navigation }: Props) {
                       onBlur={onBlur}
                       keyboardType="decimal-pad"
                       placeholder="0.00"
-                      className="rounded-[32px] border border-brand-100 bg-brand-50/50 px-6 py-5 text-lg text-brand-950 font-black"
+                      className="rounded-[32px] border border-brand-100 bg-brand-50/50 px-6 py-5 text-lg text-brand-900 font-black"
                     />
                   )}
                 />
@@ -245,7 +245,7 @@ export function IngredientFormScreen({ route, navigation }: Props) {
               </View>
               <View className="flex-row items-end justify-between">
                 <View>
-                  <Text className="text-3xl font-black text-brand-950">
+                  <Text className="text-3xl font-black text-brand-900">
                     {formatMoney(
                       (Number(watch('pricePerUnit')) || 0) / 
                       (Math.max(Number(watch('quantity')) || 1, 0.00000001)), 

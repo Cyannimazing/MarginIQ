@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Alert, KeyboardAvoidingView, Platform, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { useRoute, RouteProp } from '@react-navigation/native';
+import { KeyboardAvoidingView, Platform, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useProductStore } from '../stores/productStore';
@@ -26,7 +27,11 @@ const parseUnits = (value: string) => {
   return !Number.isFinite(parsed) ? 0 : Math.max(0, Math.floor(parsed));
 };
 
+type SalesLoggerRoute = RouteProp<{ SalesLogger: { productId?: number } }, 'SalesLogger'>;
+
 export function SalesLoggerScreen() {
+  const route = useRoute<SalesLoggerRoute>();
+  const routeProductId = route.params?.productId ?? null;
   const insets = useSafeAreaInsets();
 
   const products = useProductStore((state) => state.products);
@@ -51,10 +56,11 @@ export function SalesLoggerScreen() {
     return (t.charAt(0).toUpperCase() + t.slice(1)) as 'Daily' | 'Weekly' | 'Monthly';
   }, [settings.lastSalesLogType]);
 
-  const [selectedProductId, setSelectedProductId] = useState<number | null>(null);
+  const [selectedProductId, setSelectedProductId] = useState<number | null>(routeProductId);
   const [periodType, setPeriodType] = useState<'Daily' | 'Weekly' | 'Monthly'>(initialPeriodType);
   const [month, setMonth] = useState(getCurrentMonth());
   const [unitsSoldInput, setUnitsSoldInput] = useState('');
+  const [unitsSoldDiscountedInput, setUnitsSoldDiscountedInput] = useState('');
   const [unitsUnsoldInput, setUnitsUnsoldInput] = useState('');
   const [isSaving, setIsSaving] = useState(false);
 
@@ -80,10 +86,10 @@ export function SalesLoggerScreen() {
   }, [loadMonthlySales, loadProducts]);
 
   useEffect(() => {
-    if (!selectedProductId && products[0]?.id) {
+    if (!routeProductId && !selectedProductId && products[0]?.id) {
       setSelectedProductId(products[0].id);
     }
-  }, [products, selectedProductId]);
+  }, [products, selectedProductId, routeProductId]);
 
   useEffect(() => {
     if (selectedProductId) void loadProductIngredients(selectedProductId);
@@ -93,6 +99,7 @@ export function SalesLoggerScreen() {
     // We no longer auto-populate existing entries to avoid confusion with "updating" vs "adding more".
     // Each log is now a separate entry in the history.
     setUnitsSoldInput('');
+    setUnitsSoldDiscountedInput('');
     setUnitsUnsoldInput('');
   }, [selectedProductId, month]);
 
@@ -135,7 +142,7 @@ export function SalesLoggerScreen() {
     const vPercent = isFinite(Number(selectedProduct.vatPercent)) ? Number(selectedProduct.vatPercent) : 0;
 
     if (sPrice <= 0) {
-      const suggestedPreVat = calculateSuggestedPrice(pPieceTotalCost, targetMarginVal, selectedProduct.pricingMethod as any);
+      const suggestedPreVat = calculateSuggestedPrice(pPieceTotalCost, targetMarginVal, selectedProduct.pricingMethod as any, bSize);
       sPrice = suggestedPreVat * (1 + vPercent);
     }
 
@@ -149,13 +156,15 @@ export function SalesLoggerScreen() {
   }, [selectedProduct, productIngredients]);
 
   const unitsSold = parseUnits(unitsSoldInput);
+  const unitsSoldDiscounted = parseUnits(unitsSoldDiscountedInput);
   const unitsUnsold = parseUnits(unitsUnsoldInput);
-  const unitsProduced = unitsSold + unitsUnsold;
+  const unitsProduced = unitsSold + unitsSoldDiscounted + unitsUnsold;
 
   const sellingPrice = derivedSellingPrice;
+  const discountedPrice = roundTo(sellingPrice * 0.80, 2);
+  const actualRevenue = (unitsSold * sellingPrice) + (unitsSoldDiscounted * discountedPrice);
   const costPerPiece = perPieceTotalCost;
 
-  const actualRevenue = calculateActualRevenue(sellingPrice, unitsSold);
   const actualCost = calculateBatchCostFromUnits(costPerPiece, unitsProduced);
   const actualProfit = calculateActualProfit(actualRevenue, actualCost);
   const targetRevenue = calculateActualRevenue(sellingPrice, unitsProduced);
@@ -183,6 +192,7 @@ export function SalesLoggerScreen() {
         productId: selectedProductId,
         month: month.trim(),
         unitsSold,
+        unitsSoldDiscounted,
         unitsUnsold,
         actualRevenue,
         actualCost,
@@ -192,6 +202,7 @@ export function SalesLoggerScreen() {
       });
       // Just clear success silently
       setUnitsSoldInput('');
+      setUnitsSoldDiscountedInput('');
       setUnitsUnsoldInput('');
     } catch {
       setModalState({
@@ -223,18 +234,27 @@ export function SalesLoggerScreen() {
         <ScrollView className="flex-1 px-5" keyboardShouldPersistTaps="handled">
           <View style={{ height: 20 }} />
 
-          <FormSection title="Product Selection" icon="cube">
-            <View className="flex-row flex-wrap gap-2">
-              {products.map((p) => (
-                <OptionChip
-                  key={p.id}
-                  label={p.name}
-                  selected={selectedProductId === p.id}
-                  onPress={() => setSelectedProductId(p.id)}
-                />
-              ))}
+          {routeProductId ? (
+            <View className="mb-2 px-1">
+              <Text className="text-[10px] font-black text-brand-600 uppercase tracking-widest mb-1">Product</Text>
+              <Text className="text-xl font-black text-brand-900 tracking-tight" numberOfLines={1}>
+                {selectedProduct?.name ?? '—'}
+              </Text>
             </View>
-          </FormSection>
+          ) : (
+            <FormSection title="Product Selection" icon="cube">
+              <View className="flex-row flex-wrap gap-2">
+                {products.map((p) => (
+                  <OptionChip
+                    key={p.id}
+                    label={p.name}
+                    selected={selectedProductId === p.id}
+                    onPress={() => setSelectedProductId(p.id)}
+                  />
+                ))}
+              </View>
+            </FormSection>
+          )}
 
           <FormSection title="Period & Performance" icon="calendar">
             <Text className="text-[10px] font-black text-brand-600 uppercase mb-2 tracking-widest px-1">Log Type</Text>
@@ -259,65 +279,43 @@ export function SalesLoggerScreen() {
               value={month}
               onChangeText={setMonth}
               placeholder={periodType === 'Daily' ? 'YYYY-MM-DD' : periodType === 'Weekly' ? 'YYYY-Wxx' : 'YYYY-MM'}
-              className="rounded-2xl border border-brand-100 bg-brand-50/50 px-4 py-4 text-base text-brand-950 font-black mb-4"
+              className="rounded-2xl border border-brand-100 bg-brand-50/50 px-4 py-4 text-base text-brand-900 font-black mb-4"
               placeholderTextColor="#adb5bd"
             />
-            <View className="flex-row gap-4">
+            <View className="flex-row gap-3">
               <View className="flex-1">
-                <Text className="text-[10px] font-black text-brand-600 uppercase mb-2 tracking-widest px-1">Sold Units</Text>
+                <Text className="text-[10px] font-black text-brand-600 uppercase mb-2 tracking-widest px-1">Sold (Full)</Text>
                 <TextInput
                   value={unitsSoldInput}
                   onChangeText={setUnitsSoldInput}
                   keyboardType="number-pad"
                   placeholder="0"
-                  className="rounded-2xl border border-brand-100 bg-brand-50/50 px-4 py-4 text-base text-brand-950 font-black"
+                  className="rounded-2xl border border-brand-100 bg-brand-50/50 px-3 py-4 text-base text-brand-900 font-black text-center"
                 />
               </View>
               <View className="flex-1">
-                <Text className="text-[10px] font-black text-brand-600 uppercase mb-2 tracking-widest px-1">Unsold Units</Text>
+                <Text className="text-[10px] font-black text-emerald-600 uppercase mb-2 tracking-widest px-1">Sold (Disc.)</Text>
+                <TextInput
+                  value={unitsSoldDiscountedInput}
+                  onChangeText={setUnitsSoldDiscountedInput}
+                  keyboardType="number-pad"
+                  placeholder="0"
+                  className="rounded-2xl border border-emerald-100 bg-emerald-50/30 px-3 py-4 text-base text-emerald-700 font-black text-center"
+                />
+              </View>
+              <View className="flex-1">
+                <Text className="text-[10px] font-black text-brand-600 uppercase mb-2 tracking-widest px-1">Unsold</Text>
                 <TextInput
                   value={unitsUnsoldInput}
                   onChangeText={setUnitsUnsoldInput}
                   keyboardType="number-pad"
                   placeholder="0"
-                  className="rounded-2xl border border-brand-100 bg-brand-50/50 px-4 py-4 text-base text-brand-950 font-black"
+                  className="rounded-2xl border border-brand-100 bg-brand-50/50 px-3 py-4 text-base text-brand-900 font-black text-center"
                 />
               </View>
             </View>
           </FormSection>
 
-          <View className="mt-6 rounded-[32px] bg-brand-900 p-6 shadow-xl shadow-brand-900/20">
-            <View className="flex-row items-center gap-2 mb-4">
-              <View className="w-8 h-8 rounded-full bg-white/10 items-center justify-center">
-                <Ionicons name="bulb" size={16} color="#34d399" />
-              </View>
-              <Text className="text-[10px] font-black text-brand-100 uppercase tracking-[2px]">Real-Time Batch Insights</Text>
-            </View>
-
-            <View className="flex-row gap-6">
-              <View className="flex-1">
-                <Text className="text-[9px] font-black text-brand-400 uppercase tracking-widest mb-1">Break-even</Text>
-                <Text className="text-xl font-black text-white">
-                  {sellingPrice > 0 ? Math.ceil(actualCost / sellingPrice) : 0} <Text className="text-[10px] text-brand-400 font-bold uppercase">units</Text>
-                </Text>
-              </View>
-              <View className="flex-1">
-                <Text className="text-[9px] font-black text-brand-400 uppercase tracking-widest mb-1">Max Potential Profit</Text>
-                <Text className="text-xl font-black text-emerald-400">
-                  {formatMoney(targetProfit, currencyCode)}
-                </Text>
-              </View>
-            </View>
-
-            <View className="h-[1px] bg-white/10 my-4" />
-
-            <View className="flex-row justify-between items-center">
-              <Text className="text-[10px] font-bold text-brand-400 uppercase tracking-widest">Efficiency Margin</Text>
-              <Text className={`text-sm font-black ${actualMarginPercent > 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                {actualRevenue > 0 ? actualMarginPercent.toFixed(1) : '0.0'}%
-              </Text>
-            </View>
-          </View>
 
           <View className="mt-8 gap-4 pb-20">
             <Pressable
@@ -339,9 +337,11 @@ export function SalesLoggerScreen() {
               productSales.map((entry) => (
                 <View key={entry.id} className="rounded-3xl border border-brand-100 bg-white p-5 flex-row items-center justify-between mb-3 shadow-sm">
                   <View>
-                    <Text className="text-sm font-black text-brand-950">{entry.month} <Text className="font-semibold text-brand-400">· {entry.unitsSold} units</Text></Text>
+                    <Text className="text-sm font-black text-brand-900">
+                      {entry.month} <Text className="font-semibold text-brand-400">· {Number(entry.unitsSold) + Number(entry.unitsSoldDiscounted)} sold</Text>
+                    </Text>
                     <Text className="text-[10px] text-brand-600 font-bold uppercase tracking-tighter">
-                      Revenue: {formatMoney(entry.actualRevenue, currencyCode)}
+                      Revenue: {formatMoney(entry.actualRevenue, currencyCode)} {entry.unitsSoldDiscounted > 0 ? `(${entry.unitsSoldDiscounted} disc.)` : ''}
                     </Text>
                   </View>
                   <Pressable onPress={() => handleDelete(entry.id)}>
@@ -382,7 +382,7 @@ function SummaryRow({ label, value, isStrong }: { label: string; value: string; 
   return (
     <View className="flex-row justify-between items-center">
       <Text className={`text-xs ${isStrong ? 'font-black text-brand-900 uppercase tracking-widest' : 'font-bold text-brand-600'}`}>{label}</Text>
-      <Text className={`text-sm font-black ${isStrong ? 'text-brand-950' : 'text-brand-800'}`}>{value}</Text>
+      <Text className={`text-sm font-black ${isStrong ? 'text-brand-900' : 'text-brand-800'}`}>{value}</Text>
     </View>
   );
 }

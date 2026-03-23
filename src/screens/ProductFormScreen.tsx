@@ -28,7 +28,7 @@ type Props = NativeStackScreenProps<RootStackParamList, 'ProductForm'>;
 const PRICING_METHODS: Array<{ key: PricingMethod; label: string; description: string }> = [
   { key: 'margin', label: 'Margin %', description: 'Profit as a % of selling price' },
   { key: 'markup', label: 'Markup %', description: 'Profit as a % of cost price' },
-  { key: 'fixed', label: 'Fixed Profit', description: 'Set a fixed profit per unit' },
+  { key: 'fixed', label: 'Fixed Batch Profit', description: 'Set a target total profit for the whole batch' },
 ];
 
 const TOTAL_STEPS = 3;
@@ -105,8 +105,23 @@ export function ProductFormScreen({ route, navigation }: Props) {
       if (value !== undefined && value !== null) {
         setPricingValue(String(value));
       }
+      
+      // Also sync VAT defaults
+      if (settings.defaultVatEnabled !== undefined) {
+        setHasVat(settings.defaultVatEnabled);
+      }
+      if (settings.defaultVatPercent !== undefined) {
+        setVatPercent(String(settings.defaultVatPercent));
+      }
     }
-  }, [settings.defaultPricingMethod, settings.defaultTargetMarginPercent, settings.defaultTargetMarkupPercent, settings.defaultTargetFixedProfitAmount]);
+  }, [
+    settings.defaultPricingMethod, 
+    settings.defaultTargetMarginPercent, 
+    settings.defaultTargetMarkupPercent, 
+    settings.defaultTargetFixedProfitAmount,
+    settings.defaultVatEnabled,
+    settings.defaultVatPercent
+  ]);
 
   const validateStep = (): boolean => {
     if (step === 1) {
@@ -263,7 +278,7 @@ export function ProductFormScreen({ route, navigation }: Props) {
                   value={name}
                   onChangeText={setName}
                   placeholder="e.g. Signature Blend"
-                  className="rounded-[32px] border border-brand-100 bg-brand-50/50 px-5 py-4 text-base font-bold text-brand-950 mb-6"
+                  className="rounded-[32px] border border-brand-100 bg-brand-50/50 px-5 py-4 text-base font-bold text-brand-900 mb-6"
                   placeholderTextColor="#adb5bd"
                 />
                 
@@ -293,7 +308,7 @@ export function ProductFormScreen({ route, navigation }: Props) {
                       value={batchSize}
                       onChangeText={setBatchSize}
                       keyboardType="number-pad"
-                      className="rounded-[32px] border border-brand-100 bg-brand-50/50 px-5 py-4 text-base text-brand-950 font-bold"
+                      className="rounded-[32px] border border-brand-100 bg-brand-50/50 px-5 py-4 text-base text-brand-900 font-bold"
                     />
                   </View>
                   <View className="flex-1">
@@ -302,7 +317,7 @@ export function ProductFormScreen({ route, navigation }: Props) {
                       value={baseCost}
                       onChangeText={setBaseCost}
                       keyboardType="decimal-pad"
-                      className="rounded-[32px] border border-brand-100 bg-brand-50/50 px-5 py-4 text-base text-brand-950 font-bold"
+                      className="rounded-[32px] border border-brand-100 bg-brand-50/50 px-5 py-4 text-base text-brand-900 font-bold"
                     />
                   </View>
                 </View>
@@ -315,7 +330,17 @@ export function ProductFormScreen({ route, navigation }: Props) {
                     <Text className="text-sm font-black text-brand-900">Value Added Tax (VAT)</Text>
                     <Text className="text-[10px] text-brand-400 font-bold uppercase tracking-tighter">Enable tax calculations</Text>
                   </View>
-                  <Switch value={hasVat} onValueChange={setHasVat} trackColor={{ true: '#16a34a' }} thumbColor={hasVat ? '#ffffff' : '#f8f9fa'} />
+                  <Switch 
+                    value={hasVat} 
+                    onValueChange={(val) => {
+                      setHasVat(val);
+                      if (val && (!vatPercent || vatPercent === '0' || vatPercent === '0.00')) {
+                        setVatPercent(String(settings.defaultVatPercent ?? '0'));
+                      }
+                    }} 
+                    trackColor={{ true: '#16a34a' }} 
+                    thumbColor={hasVat ? '#ffffff' : '#f8f9fa'} 
+                  />
                 </View>
                 {hasVat && (
                   <View>
@@ -324,7 +349,7 @@ export function ProductFormScreen({ route, navigation }: Props) {
                       value={vatPercent}
                       onChangeText={setVatPercent}
                       keyboardType="decimal-pad"
-                      className="rounded-[32px] border border-brand-100 bg-brand-50/50 px-5 py-4 text-base text-brand-950 font-bold"
+                      className="rounded-[32px] border border-brand-100 bg-brand-50/50 px-5 py-4 text-base text-brand-900 font-bold"
                     />
                   </View>
                 )}
@@ -373,7 +398,7 @@ export function ProductFormScreen({ route, navigation }: Props) {
                 value={pricingValue}
                 onChangeText={setPricingValue}
                 keyboardType="decimal-pad"
-                className="rounded-[32px] border border-brand-100 bg-brand-50/50 px-5 py-4 text-base text-brand-950 font-black"
+                className="rounded-[32px] border border-brand-100 bg-brand-50/50 px-5 py-4 text-base text-brand-900 font-black"
               />
             </FormSection>
           </View>

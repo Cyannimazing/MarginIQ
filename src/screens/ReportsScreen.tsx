@@ -36,21 +36,74 @@ const isMonthRangeValid = (startMonth: string, endMonth: string) => {
   return compareMonths(startMonth, endMonth) <= 0;
 };
 
-const buildReportHtml = (title: string, reportBody: string) => `
+const buildReportHtml = (title: string, businessName: string, headers: string[], rows: string[][], summary: any) => `
   <html>
     <head>
       <meta charset="utf-8" />
       <style>
-        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; padding: 20px; color: #0f172a; }
-        h1 { font-size: 20px; margin-bottom: 8px; }
-        p { color: #475569; margin-top: 0; }
-        pre { white-space: pre-wrap; word-break: break-word; font-size: 12px; line-height: 1.6; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 14px; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; padding: 40px; color: #0f172a; line-height: 1.5; }
+        .header { margin-bottom: 40px; border-bottom: 2px solid #166534; padding-bottom: 20px; }
+        .header h1 { font-size: 28px; margin: 0; color: #064e3b; }
+        .header p { color: #64748b; margin: 4px 0 0; font-size: 14px; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; }
+        
+        .summary-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 20px; margin-bottom: 40px; }
+        .summary-card { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 16px; padding: 20px; }
+        .summary-card h3 { margin: 0 0 8px; font-size: 10px; color: #64748b; text-transform: uppercase; letter-spacing: 1px; }
+        .summary-card p { margin: 0; font-size: 20px; font-weight: 800; color: #0f172a; }
+        
+        table { width: 100%; border-collapse: collapse; margin-top: 20px; border-radius: 12px; overflow: hidden; border: 1px solid #e2e8f0; }
+        th { background: #f1f5f9; color: #475569; font-size: 10px; text-transform: uppercase; letter-spacing: 1px; padding: 12px 16px; text-align: left; }
+        td { padding: 12px 16px; border-bottom: 1px solid #f1f5f9; font-size: 13px; color: #334155; }
+        tr:last-child td { border-bottom: none; }
+        .font-black { font-weight: 800; }
+        .text-emerald { color: #059669; }
+        .footer { margin-top: 60px; text-align: center; font-size: 10px; color: #94a3b8; text-transform: uppercase; letter-spacing: 2px; }
       </style>
     </head>
     <body>
-      <h1>${escapeHtml(title)}</h1>
-      <p>Generated offline by MarginIQ</p>
-      <pre>${escapeHtml(reportBody)}</pre>
+      <div class="header">
+        <h1>${escapeHtml(businessName)}</h1>
+        <p>${escapeHtml(title)}</p>
+      </div>
+
+      <div class="summary-grid">
+        <div class="summary-card">
+          <h3>Total Revenue</h3>
+          <p>${escapeHtml(summary.revenue)}</p>
+        </div>
+        <div class="summary-card">
+          <h3>Net Profit</h3>
+          <p class="text-emerald">${escapeHtml(summary.profit)}</p>
+        </div>
+        <div class="summary-card">
+          <h3>Volume</h3>
+          <p>${summary.sold} Units</p>
+        </div>
+        <div class="summary-card">
+          <h3>Efficiency</h3>
+          <p>${summary.margin}</p>
+        </div>
+      </div>
+
+      <h3>Detailed Breakdown</h3>
+      <table>
+        <thead>
+          <tr>
+            ${headers.map(h => `<th>${escapeHtml(h)}</th>`).join('')}
+          </tr>
+        </thead>
+        <tbody>
+          ${rows.map(row => `
+            <tr>
+              ${row.map((cell, i) => `<td class="${i === 0 ? 'font-black' : ''}">${escapeHtml(cell)}</td>`).join('')}
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+
+      <div class="footer">
+        Generated Offline by MarginIQ • Financial Intelligence for MSMEs
+      </div>
     </body>
   </html>
 `;
@@ -177,6 +230,8 @@ export function ReportsScreen() {
       number,
       {
         productName: string;
+        pricingMethod: string;
+        targetValue: string;
         revenue: number;
         cost: number;
         profit: number;
@@ -189,6 +244,10 @@ export function ReportsScreen() {
       const product = products.find((item) => item.id === entry.productId);
       const current = map.get(entry.productId) ?? {
         productName: product?.name ?? `Product #${entry.productId}`,
+        pricingMethod: product?.pricingMethod ?? 'margin',
+        targetValue: product?.pricingMethod === 'fixed' 
+          ? formatMoney(product.targetMargin, currencyCode) 
+          : `${((product?.targetMargin ?? 0) * 100).toFixed(1)}%`,
         revenue: 0,
         cost: 0,
         profit: 0,
@@ -210,7 +269,7 @@ export function ReportsScreen() {
         ...metrics,
       }))
       .sort((a, b) => b.profit - a.profit);
-  }, [filteredEntries, products]);
+  }, [filteredEntries, products, currencyCode]);
 
   const reportText = useMemo(() => {
     const productLabel =
@@ -225,31 +284,31 @@ export function ReportsScreen() {
           ? `Invalid range (${startMonth} to ${endMonth})`
           : 'Not applied';
 
+    const singleProduct = selectedProduct !== 'all' ? products.find(p => p.id === selectedProduct) : null;
+    const targetInfo = singleProduct ? (
+      singleProduct.pricingMethod === 'fixed' 
+        ? `Target Batch Profit: ${formatMoney(singleProduct.targetMargin, currencyCode)}`
+        : `Target ${singleProduct.pricingMethod.toUpperCase()}: ${(singleProduct.targetMargin * 100).toFixed(1)}%`
+    ) : 'Mixed Targets';
+
     return [
-      `${businessName} — MarginIQ Report`,
-      `Scope: ${productLabel} | ${monthLabel} | Range: ${rangeLabel}`,
-      `Entries: ${filteredEntries.length}`,
+      `${businessName} — Financial Performance`,
+      `Product: ${productLabel} | Month: ${monthLabel}`,
+      `Strategy: ${targetInfo}`,
+      `Volume: ${totals.sold} items sold`,
       '',
-      `Revenue: ${formatMoney(totals.revenue, currencyCode)}`,
-      `Cost: ${formatMoney(totals.cost, currencyCode)}`,
-      `Profit: ${formatMoney(totals.profit, currencyCode)}`,
+      `Total Revenue: ${formatMoney(totals.revenue, currencyCode)}`,
+      `Net Profit: ${formatMoney(totals.profit, currencyCode)}`,
+      `Efficiency: ${totals.revenue > 0 ? ((totals.profit / totals.revenue) * 100).toFixed(1) : '0.0'}%`,
       `Shortfall: ${formatMoney(totals.shortfall, currencyCode)}`,
-      `Units Sold: ${totals.sold}`,
-      `Units Unsold: ${totals.unsold}`,
       '',
-      'Month Breakdown:',
-      ...groupedByMonth.map(
-        (item) =>
-          `• ${formatMonthLabel(item.month)} | Revenue ${formatMoney(item.revenue, currencyCode)} | Profit ${formatMoney(item.profit, currencyCode)} | Sold ${item.sold} | Unsold ${item.unsold}`,
-      ),
-      '',
-      'Product Breakdown:',
+      'Performance by Product:',
       ...groupedByProduct.map(
         (item) =>
-          `• ${item.productName} | Revenue ${formatMoney(item.revenue, currencyCode)} | Profit ${formatMoney(item.profit, currencyCode)} | Sold ${item.sold} | Unsold ${item.unsold}`,
+          `• ${item.productName} [${item.pricingMethod}] | Rev: ${formatMoney(item.revenue, currencyCode)} | Profit: ${formatMoney(item.profit, currencyCode)} | Units: ${item.sold}`,
       ),
       '',
-      'Generated by MarginIQ (offline)',
+      'Generated by MarginIQ',
     ].join('\n');
   }, [
     businessName,
@@ -297,8 +356,24 @@ export function ReportsScreen() {
     }
 
     try {
+      const headers = ['Product', 'Method', 'Target', 'Sales', 'Profit'];
+      const rows = groupedByProduct.map(item => [
+        item.productName,
+        item.pricingMethod.toUpperCase(),
+        item.targetValue,
+        formatMoney(item.revenue, currencyCode),
+        formatMoney(item.profit, currencyCode)
+      ]);
+
+      const summary = {
+        revenue: formatMoney(totals.revenue, currencyCode),
+        profit: formatMoney(totals.profit, currencyCode),
+        sold: totals.sold,
+        margin: totals.revenue > 0 ? `${((totals.profit / totals.revenue) * 100).toFixed(1)}%` : '0%'
+      };
+
       const { uri } = await Print.printToFileAsync({
-        html: buildReportHtml(`${businessName} — MarginIQ Report`, reportText),
+        html: buildReportHtml('Performance Report', businessName, headers, rows, summary),
       });
 
       if (await Sharing.isAvailableAsync()) {
