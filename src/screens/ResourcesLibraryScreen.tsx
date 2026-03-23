@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { FlatList, Pressable, Text, TextInput, View } from 'react-native';
+import { FlatList, Pressable, Text, TextInput, View, TouchableOpacity } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { RootStackParamList } from '../navigation/types';
@@ -81,7 +81,8 @@ export function ResourcesLibraryScreen({ navigation }: Props) {
           onEndReached={handleLoadMore}
           onEndReachedThreshold={0.5}
           contentContainerClassName="gap-3 pb-24"
-          refreshing={isLoading && page === 1}
+          keyboardShouldPersistTaps="always"
+          refreshing={isLoading}
           onRefresh={() => {
             setPage(1);
             void loadIngredients(0);
@@ -97,10 +98,19 @@ export function ResourcesLibraryScreen({ navigation }: Props) {
             </View>
           }
           renderItem={({ item }) => (
-            <Pressable
-              onPress={() => navigation.navigate('IngredientForm', { ingredientId: item.id, productId: item.productId })}
+            <TouchableOpacity
+              activeOpacity={0.6}
+              onPress={() => {
+                navigation.navigate('IngredientForm', { 
+                  ingredientId: item.id, 
+                  productId: item.productId ?? 0 
+                });
+              }}
+              className="mb-3"
+              style={{ backgroundColor: 'white', borderRadius: 24 }}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
             >
-              <View className="flex-row items-center justify-between rounded-[24px] border border-brand-100 bg-white p-5 shadow-sm active:bg-brand-50/50">
+              <View className="flex-row items-center justify-between rounded-[24px] border border-brand-100 bg-white p-5 shadow-sm">
                 <View className="flex-1">
                   <View className="flex-row items-center mb-1">
                     <Text className="text-[9px] font-black text-brand-400 uppercase tracking-[2px]">
@@ -120,11 +130,11 @@ export function ResourcesLibraryScreen({ navigation }: Props) {
                     </Text>
                   </View>
                 </View>
-                <View className="w-10 h-10 rounded-full bg-brand-50/50 items-center justify-center">
-                  <Ionicons name="create-outline" size={18} color="#14532d" />
+                <View className="w-10 h-10 rounded-full bg-brand-100/50 items-center justify-center">
+                  <Ionicons name="create" size={18} color="#14532d" />
                 </View>
               </View>
-            </Pressable>
+            </TouchableOpacity>
           )}
         />
       </View>

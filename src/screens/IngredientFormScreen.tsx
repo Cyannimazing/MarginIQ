@@ -56,10 +56,12 @@ export function IngredientFormScreen({ route, navigation }: Props) {
   const productId = route.params?.productId ?? 0;
   const addIngredient = useIngredientStore((state) => state.addIngredient);
   const editIngredient = useIngredientStore((state) => state.editIngredient);
-  const getIngredientById = useIngredientStore((state) => state.getIngredientById);
+  const ingredients = useIngredientStore((state) => state.ingredients);
   const currencyCode = useSettingsStore((state) => state.settings.currencyCode);
 
-  const existingIngredient = ingredientId ? getIngredientById(ingredientId) : undefined;
+  const existingIngredient = React.useMemo(() => 
+    ingredientId ? ingredients.find(i => i.id === ingredientId) : undefined,
+  [ingredients, ingredientId]);
 
   const [modalState, setModalState] = useState<{
     visible: boolean;
@@ -75,6 +77,7 @@ export function IngredientFormScreen({ route, navigation }: Props) {
     formState: { errors, isSubmitting },
     setValue,
     watch,
+    reset,
   } = useForm<IngredientFormValues>({
     resolver: zodResolver(ingredientSchema),
     defaultValues: {
@@ -86,6 +89,20 @@ export function IngredientFormScreen({ route, navigation }: Props) {
       yieldFactor: String(existingIngredient?.yieldFactor ?? '1'),
     },
   });
+
+  // Sync form values when existingIngredient is loaded or changes
+  React.useEffect(() => {
+    if (existingIngredient) {
+      reset({
+        name: existingIngredient.name,
+        classification: existingIngredient.classification as any,
+        unit: existingIngredient.unit as IngredientUnit,
+        quantity: String(existingIngredient.quantity),
+        pricePerUnit: String(existingIngredient.pricePerUnit),
+        yieldFactor: String(existingIngredient.yieldFactor),
+      });
+    }
+  }, [existingIngredient, reset]);
 
   const selectedUnit = watch('unit');
   const selectedClassification = watch('classification');
@@ -229,7 +246,12 @@ export function IngredientFormScreen({ route, navigation }: Props) {
               <View className="flex-row items-end justify-between">
                 <View>
                   <Text className="text-3xl font-black text-brand-950">
-                    {formatMoney((Number(watch('pricePerUnit')) || 0) / (Number(watch('quantity')) || 1), currencyCode, 3)}
+                    {formatMoney(
+                      (Number(watch('pricePerUnit')) || 0) / 
+                      (Math.max(Number(watch('quantity')) || 1, 0.00000001)), 
+                      currencyCode, 
+                      3
+                    )}
                   </Text>
                   <Text className="text-[10px] font-bold text-brand-400 tracking-widest uppercase mt-1">
                     / {selectedClassification === 'fixed' ? 'UNIT' : selectedUnit}

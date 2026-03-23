@@ -1,15 +1,15 @@
 {
   "expo": {
-    "name": "marginiq",
+    "name": "MarginIQ",
     "slug": "marginiq",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/icon.png",
+    "icon": "./assets/icon_new.png",
     "userInterfaceStyle": "light",
     "splash": {
-      "image": "./assets/BLACK-LOGO.png",
+      "image": "./assets/splash_final_v3.png",
       "resizeMode": "contain",
-      "backgroundColor": "#ffffff"
+      "backgroundColor": "#14532d"
     },
     "ios": {
       "supportsTablet": true
@@ -21,13 +21,19 @@
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "package": "com.cyann1730.marginiq"
     },
     "web": {
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
       "expo-sqlite"
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "64a10b4a-7f81-4442-9079-986bc6fe4356"
+      }
+    }
   }
 }

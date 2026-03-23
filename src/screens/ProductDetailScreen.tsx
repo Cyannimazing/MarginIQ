@@ -110,10 +110,11 @@ export function ProductDetailScreen({ route, navigation }: Props) {
 
   // Helper to get true unit cost per 1 unit of measurement
   const getTrueUnitCost = (pi: any) => {
-    const qty = Number(pi.ingredientQuantity) || 1;
-    const yieldFactor = Number(pi.ingredientYieldFactor) || 1;
+    const qty = Math.max(Number(pi.ingredientQuantity) || 1, 0.00000001);
+    const yieldFactor = Math.max(Number(pi.ingredientYieldFactor) || 1, 0.00000001);
     const pricePerUnit = Number(pi.ingredientPricePerUnit) || 0;
-    return (pricePerUnit / qty) / yieldFactor;
+    const cost = (pricePerUnit / qty) / yieldFactor;
+    return isFinite(cost) ? cost : 0;
   };
 
   const {
@@ -153,8 +154,8 @@ export function ProductDetailScreen({ route, navigation }: Props) {
     const oTotal = oTotalList + (isFinite(Number(product?.baseCost)) ? Number(product?.baseCost) : 0);
 
     const bTotalCost = iTotal + oTotal;
-    const bSize = Math.max(Number(product?.batchSize || 1), 1);
-    const pPieceTotalCost = bTotalCost / bSize;
+    const bSize = Math.max(Number(product?.batchSize || 1), 0.00000001);
+    const pPieceTotalCost = isFinite(bTotalCost / bSize) ? bTotalCost / bSize : 0;
 
     let sPrice = isFinite(Number(product?.sellingPrice)) ? Number(product?.sellingPrice) : 0;
     const targetMarginVal = isFinite(Number(product?.targetMargin)) ? Number(product?.targetMargin) : 0;
@@ -175,7 +176,7 @@ export function ProductDetailScreen({ route, navigation }: Props) {
 
     sPrice = Math.max(0, sPrice);
 
-    const pBeforeVat = sPrice / (1 + vPercent);
+    const pBeforeVat = isFinite(sPrice / (1 + vPercent)) ? sPrice / (1 + vPercent) : sPrice;
     const vAmount = sPrice - pBeforeVat;
     const pPerPiece = sPrice - pPieceTotalCost;
 
@@ -183,8 +184,8 @@ export function ProductDetailScreen({ route, navigation }: Props) {
     const roundedCost = Math.round(pPieceTotalCost * 100) / 100;
     const roundedProfit = roundedSPrice - roundedCost;
 
-    const pMarginPercent = roundedSPrice > 0 ? (roundedProfit / roundedSPrice) * 100 : 0;
-    const pMarkupPercent = roundedCost > 0 ? (roundedProfit / roundedCost) * 100 : 0;
+    const pMarginPercent = (isFinite(roundedSPrice) && roundedSPrice > 0) ? (roundedProfit / roundedSPrice) * 100 : 0;
+    const pMarkupPercent = (isFinite(roundedCost) && roundedCost > 0) ? (roundedProfit / roundedCost) * 100 : 0;
 
     let profitValid = false;
     if (product?.pricingMethod === 'fixed') profitValid = pPerPiece >= targetMarginVal;

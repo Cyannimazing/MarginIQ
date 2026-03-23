@@ -1,6 +1,7 @@
 {
   "name": "marginiq",
   "version": "1.0.0",
+  "description": "MarginIQ: Product Profit Optimizer",
   "main": "index.ts",
   "scripts": {
     "start": "expo start",
@@ -40,7 +41,8 @@
   "devDependencies": {
     "@expo/ngrok": "^4.1.3",
     "@types/react": "~19.1.10",
-    "typescript": "~5.9.2"
+    "typescript": "~5.9.2",
+    "yaml": "^2.8.3"
   },
   "private": true
 }

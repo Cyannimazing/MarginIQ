@@ -48,9 +48,11 @@ export function ProductAddIngredientScreen({ route, navigation }: Props) {
   const currencyCode = useSettingsStore((state) => state.settings.currencyCode);
 
   const getTrueUnitCost = (pi: any) => {
-    const qty = pi.ingredientQuantity || 1;
-    const yieldFactor = pi.ingredientYieldFactor || 1;
-    return (pi.ingredientPricePerUnit / qty) / yieldFactor;
+    const qty = Math.max(Number(pi.ingredientQuantity) || 1, 0.00000001);
+    const yieldFactor = Math.max(Number(pi.ingredientYieldFactor) || 1, 0.00000001);
+    const price = Number(pi.ingredientPricePerUnit) || 0;
+    const cost = (price / qty) / yieldFactor;
+    return isFinite(cost) ? cost : 0;
   };
 
   const [modalState, setModalState] = useState<{
@@ -348,8 +350,8 @@ export function ProductAddIngredientScreen({ route, navigation }: Props) {
                   const displayName = ingredient?.name ?? piInfo?.ingredientName ?? 'Resource';
                   const displayUnit = ingredient?.unit ?? piInfo?.ingredientUnit ?? '';
                   const price = ingredient?.pricePerUnit ?? piInfo?.ingredientPricePerUnit ?? 0;
-                  const purchasedQty = ingredient?.quantity ?? piInfo?.ingredientQuantity ?? 1;
-                  const yieldFactor = ingredient?.yieldFactor ?? piInfo?.ingredientYieldFactor ?? 1;
+                  const purchasedQty = Math.max(Number(ingredient?.quantity ?? piInfo?.ingredientQuantity ?? 1), 0.00000001);
+                  const yieldFactor = Math.max(Number(ingredient?.yieldFactor ?? piInfo?.ingredientYieldFactor ?? 1), 0.00000001);
                   const unitCost = (price / purchasedQty) / yieldFactor;
 
                   if (!displayName) return null;
@@ -388,8 +390,8 @@ export function ProductAddIngredientScreen({ route, navigation }: Props) {
                         const pi = productIngredients.find(p => p.ingredientId === item.ingredientId) as any;
                         
                         const p = ing?.pricePerUnit ?? pi?.ingredientPricePerUnit ?? 0;
-                        const q = ing?.quantity ?? pi?.ingredientQuantity ?? 1;
-                        const y = ing?.yieldFactor ?? pi?.ingredientYieldFactor ?? 1;
+                        const q = Math.max(Number(ing?.quantity ?? pi?.ingredientQuantity ?? 1), 0.00000001);
+                        const y = Math.max(Number(ing?.yieldFactor ?? pi?.ingredientYieldFactor ?? 1), 0.00000001);
                         
                         const u = (p / q) / y;
                         return sum + (u * q);
