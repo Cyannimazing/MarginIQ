@@ -1,12 +1,6 @@
-import { defineConfig } from 'drizzle-kit';
-
-export default defineConfig({
-  dialect: 'sqlite',
+export default {
   schema: './src/db/schema.ts',
   out: './src/db/migrations',
-  dbCredentials: {
-    url: 'marginiq.db',
-  },
   strict: true,
   verbose: true,
-});
+};

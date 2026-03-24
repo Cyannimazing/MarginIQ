@@ -37,6 +37,16 @@ runMigrationStatement(`
   );
 `);
 
+runMigrationStatement(`
+  CREATE TABLE IF NOT EXISTS product_cost_groups (
+    id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+    name TEXT NOT NULL,
+    monthly_shared_cost REAL NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT '',
+    updated_at TEXT NOT NULL DEFAULT ''
+  );
+`);
+
 // Safe migration: rebuild ingredients table without the old `category` column
 // (ALTER TABLE DROP COLUMN is unsupported on older SQLite/Android versions)
 try {
@@ -91,6 +101,7 @@ ensureColumn('ingredients', 'updated_at', 'TEXT', "''");
 ensureColumn('ingredients', 'product_id', 'INTEGER', '0');
 ensureColumn('ingredients', 'quantity', 'REAL', '1');
 ensureColumn('ingredients', 'classification', 'TEXT');
+ensureColumn('ingredients', 'tag', 'TEXT', "'Other'");
 
 // Add Missing Columns safely to Products
 ensureColumn('products', 'batch_size', 'INTEGER', '1');
@@ -108,6 +119,13 @@ ensureColumn('products', 'updated_at', 'TEXT', "''");
 ensureColumn('products', 'deleted_at', 'TEXT', 'NULL');
 ensureColumn('products', 'discount_percent', 'REAL', '0.20');
 ensureColumn('products', 'monthly_overhead', 'REAL', '0');
+ensureColumn('products', 'monthly_production_qty', 'REAL', '0');
+ensureColumn('products', 'cost_group_id', 'INTEGER', 'NULL');
+
+// Add Missing Columns safely to Product Cost Groups
+ensureColumn('product_cost_groups', 'monthly_shared_cost', 'REAL', '0');
+ensureColumn('product_cost_groups', 'created_at', 'TEXT', "''");
+ensureColumn('product_cost_groups', 'updated_at', 'TEXT', "''");
 
 // Ensure other tables
 runMigrationStatement(`
@@ -184,5 +202,7 @@ runMigrationStatement(`
 runMigrationStatement(`DROP INDEX IF EXISTS idx_monthly_sales_product_month;`);
 runMigrationStatement(`CREATE INDEX IF NOT EXISTS idx_monthly_sales_product_month ON monthly_sales (product_id, month);`);
 runMigrationStatement(`CREATE UNIQUE INDEX IF NOT EXISTS idx_monthly_goals_month ON monthly_goals (month);`);
+runMigrationStatement(`CREATE INDEX IF NOT EXISTS idx_products_cost_group_id ON products (cost_group_id);`);
+runMigrationStatement(`CREATE INDEX IF NOT EXISTS idx_product_cost_groups_name ON product_cost_groups (name);`);
 
 export const db = drizzle(expoDb);

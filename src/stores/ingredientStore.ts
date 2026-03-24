@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import {
   addIngredient,
   deleteIngredient,
-  listIngredients,
+  listAllIngredients,
   updateIngredient,
 } from '../db/queries/ingredients';
 import { Ingredient, IngredientInput } from '../features/ingredients/types';
@@ -25,10 +25,10 @@ export const useIngredientStore = create<IngredientState>((set, get) => ({
   ingredients: [],
   isLoading: false,
   error: null,
-  loadIngredients: async (productId) => {
+  loadIngredients: async (_productId?: number) => {
     set({ isLoading: true, error: null });
     try {
-      const rows = await listIngredients(productId);
+      const rows = await listAllIngredients();
       set({ ingredients: rows as Ingredient[], isLoading: false });
     } catch (error) {
       set({ isLoading: false, error: getErrorMessage(error) });
@@ -38,29 +38,29 @@ export const useIngredientStore = create<IngredientState>((set, get) => ({
     set({ isLoading: true, error: null });
     try {
       await addIngredient(input);
-      const rows = await listIngredients(input.productId);
+      const rows = await listAllIngredients();
       set({ ingredients: rows as Ingredient[], isLoading: false });
     } catch (error) {
       set({ isLoading: false, error: getErrorMessage(error) });
       throw error;
     }
   },
-  editIngredient: async (productId, id, input) => {
+  editIngredient: async (_productId, id, input) => {
     set({ isLoading: true, error: null });
     try {
       await updateIngredient(id, input);
-      const rows = await listIngredients(productId);
+      const rows = await listAllIngredients();
       set({ ingredients: rows as Ingredient[], isLoading: false });
     } catch (error) {
       set({ isLoading: false, error: getErrorMessage(error) });
       throw error;
     }
   },
-  removeIngredient: async (productId, id) => {
+  removeIngredient: async (_productId, id) => {
     set({ isLoading: true, error: null });
     try {
       await deleteIngredient(id);
-      const rows = await listIngredients(productId);
+      const rows = await listAllIngredients();
       set({ ingredients: rows as Ingredient[], isLoading: false });
     } catch (error) {
       set({ isLoading: false, error: getErrorMessage(error) });

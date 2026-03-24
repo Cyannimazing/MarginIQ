@@ -5,6 +5,7 @@ export type AppSettings = {
   currencyCode: string;
   defaultVatPercent: number;
   defaultVatEnabled: boolean;
+  defaultDiscountPercent: number;
   defaultTargetMarginPercent: number;
   defaultTargetMarkupPercent: number;
   defaultTargetFixedProfitAmount: number;

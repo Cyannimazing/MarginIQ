@@ -6,6 +6,7 @@ import { CURRENCIES } from '../constants/currencies';
 import { RootStackParamList } from '../navigation/types';
 import { useSettingsStore } from '../stores/settingsStore';
 import { OptionChip } from '../components/ui/OptionChip';
+import { ActionModal } from '../components/ui/ActionModal';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Onboarding'>;
 
@@ -21,6 +22,12 @@ export function OnboardingScreen({ navigation }: Props) {
   const [currencyCode, setCurrencyCode] = useState(settings.currencyCode);
   const [currencyQuery, setCurrencyQuery] = useState('');
 
+  const [modalState, setModalState] = useState({
+    visible: false,
+    title: '',
+    message: '',
+  });
+
   const filteredCurrencies = useMemo(() => {
     const query = currencyQuery.trim().toLowerCase();
     if (!query) return CURRENCIES;
@@ -35,7 +42,11 @@ export function OnboardingScreen({ navigation }: Props) {
   const handleNext = () => {
     if (step === 1) {
       if (!businessName.trim()) {
-        Alert.alert('Business Name Required', 'Please enter your business name to continue.');
+        setModalState({
+          visible: true,
+          title: 'Business Name Required',
+          message: 'Please enter your business name to continue.',
+        });
         return;
       }
       setStep(2);
@@ -55,7 +66,11 @@ export function OnboardingScreen({ navigation }: Props) {
       });
       navigation.reset({ index: 0, routes: [{ name: 'Dashboard' }] });
     } catch {
-      Alert.alert('Save Failed', 'Unable to save your settings right now. Please try again.');
+      setModalState({
+        visible: true,
+        title: 'Save Failed',
+        message: 'Unable to save your settings right now. Please try again.',
+      });
     }
   };
 
@@ -169,6 +184,13 @@ export function OnboardingScreen({ navigation }: Props) {
           )}
         </View>
       </View>
+
+      <ActionModal
+        visible={modalState.visible}
+        title={modalState.title}
+        message={modalState.message}
+        onPrimaryAction={() => setModalState((s) => ({ ...s, visible: false }))}
+      />
     </ScrollView>
   );
 }

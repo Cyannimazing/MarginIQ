@@ -1,11 +1,17 @@
-import { products } from '../../db/schema';
+import { productCostGroups, products } from '../../db/schema';
 import { COST_TYPES, PRODUCT_CATEGORIES } from '../../constants/productCategories';
 
 export type PricingMethod = 'margin' | 'markup' | 'fixed';
 
 export type Product = typeof products.$inferSelect;
+export type ProductCostGroup = typeof productCostGroups.$inferSelect;
 export type ProductCategory = (typeof PRODUCT_CATEGORIES)[number];
 export type CostType = (typeof COST_TYPES)[number];
+
+export type ProductCostGroupInput = {
+  name: string;
+  monthlySharedCost: number;
+};
 
 export type ProductInput = {
   name: string;
@@ -18,6 +24,8 @@ export type ProductInput = {
   monthlyGoalProfit: number;
   discountPercent?: number;
   monthlyOverhead?: number;
+  monthlyProductionQty?: number;
+  costGroupId?: number | null;
   baseCost: number;
   isPinned?: boolean;
   color?: string;

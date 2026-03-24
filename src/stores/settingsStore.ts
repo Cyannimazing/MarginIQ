@@ -8,6 +8,7 @@ const SETTINGS_KEYS = {
   currencyCode: 'currency_code',
   defaultVatPercent: 'default_vat_percent',
   defaultVatEnabled: 'default_vat_enabled',
+  defaultDiscountPercent: 'default_discount_percent',
   defaultTargetMarginPercent: 'default_target_margin_percent',
   defaultTargetMarkupPercent: 'default_target_markup_percent',
   defaultTargetFixedProfitAmount: 'default_target_fixed_profit_amount',
@@ -22,6 +23,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   currencyCode: DEFAULT_CURRENCY_CODE,
   defaultVatPercent: 12,
   defaultVatEnabled: false,
+  defaultDiscountPercent: 20,
   defaultTargetMarginPercent: 50,
   defaultTargetMarkupPercent: 30,
   defaultTargetFixedProfitAmount: 100,
@@ -99,6 +101,10 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
           map[SETTINGS_KEYS.defaultVatEnabled],
           DEFAULT_SETTINGS.defaultVatEnabled,
         ),
+        defaultDiscountPercent: parseNumber(
+          map[SETTINGS_KEYS.defaultDiscountPercent],
+          DEFAULT_SETTINGS.defaultDiscountPercent,
+        ),
         defaultTargetMarginPercent: parseNumber(
           map[SETTINGS_KEYS.defaultTargetMarginPercent],
           DEFAULT_SETTINGS.defaultTargetMarginPercent,
@@ -142,6 +148,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
         [SETTINGS_KEYS.currencyCode]: nextSettings.currencyCode,
         [SETTINGS_KEYS.defaultVatPercent]: String(nextSettings.defaultVatPercent),
         [SETTINGS_KEYS.defaultVatEnabled]: String(nextSettings.defaultVatEnabled),
+        [SETTINGS_KEYS.defaultDiscountPercent]: String(nextSettings.defaultDiscountPercent),
         [SETTINGS_KEYS.defaultTargetMarginPercent]: String(
           nextSettings.defaultTargetMarginPercent,
         ),

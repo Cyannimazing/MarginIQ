@@ -32,6 +32,7 @@ export function SettingsScreen() {
   const [currencyCode, setCurrencyCode] = useState(settings.currencyCode);
   const [currencyQuery, setCurrencyQuery] = useState('');
   const [vatInput, setVatInput] = useState(String(settings.defaultVatPercent));
+  const [discountInput, setDiscountInput] = useState(String(settings.defaultDiscountPercent));
   const [marginInput, setMarginInput] = useState(String(settings.defaultTargetMarginPercent));
   const [markupInput, setMarkupInput] = useState(String(settings.defaultTargetMarkupPercent));
   const [fixedProfitInput, setFixedProfitInput] = useState(String(settings.defaultTargetFixedProfitAmount));
@@ -55,6 +56,7 @@ export function SettingsScreen() {
     setBusinessName(settings.businessName);
     setCurrencyCode(settings.currencyCode);
     setVatInput(String(settings.defaultVatPercent));
+    setDiscountInput(String(settings.defaultDiscountPercent));
     setMarginInput(String(settings.defaultTargetMarginPercent));
     setMarkupInput(String(settings.defaultTargetMarkupPercent));
     setFixedProfitInput(String(settings.defaultTargetFixedProfitAmount));
@@ -67,6 +69,7 @@ export function SettingsScreen() {
     settings.defaultTargetMarkupPercent,
     settings.defaultTargetFixedProfitAmount,
     settings.defaultVatPercent,
+    settings.defaultDiscountPercent,
   ]);
 
   const filteredCurrencies = useMemo(() => {
@@ -94,6 +97,12 @@ export function SettingsScreen() {
       return;
     }
 
+    const discount = parsePercent(discountInput);
+    if (discount === null || discount < 0 || discount > 100) {
+      setModalState({ visible: true, title: 'Invalid Discount', message: 'Discount must be between 0 and 100.', isError: true });
+      return;
+    }
+
     const margin = parsePercent(marginInput);
     if (margin === null || margin < 0 || margin >= 100) {
       setModalState({ visible: true, title: 'Invalid Margin', message: 'Default margin must be from 0 to less than 100.', isError: true });
@@ -117,6 +126,7 @@ export function SettingsScreen() {
         businessName: trimmedName,
         currencyCode,
         defaultVatPercent: vat,
+        defaultDiscountPercent: discount,
         defaultTargetMarginPercent: margin,
         defaultTargetMarkupPercent: markup,
         defaultTargetFixedProfitAmount: fixedProfit,
@@ -204,6 +214,16 @@ export function SettingsScreen() {
                 <TextInput
                   value={vatInput}
                   onChangeText={setVatInput}
+                  keyboardType="numeric"
+                  className="rounded-[24px] border border-brand-100 bg-white px-6 py-4 text-base text-brand-900 font-black shadow-sm"
+                  placeholderTextColor="#cbd5e1"
+                />
+              </View>
+              <View className="mt-2">
+                <Text className="text-[10px] font-black text-brand-600 uppercase mb-2 tracking-widest px-1">Default Discount %</Text>
+                <TextInput
+                  value={discountInput}
+                  onChangeText={setDiscountInput}
                   keyboardType="numeric"
                   className="rounded-[24px] border border-brand-100 bg-white px-6 py-4 text-base text-brand-900 font-black shadow-sm"
                   placeholderTextColor="#cbd5e1"

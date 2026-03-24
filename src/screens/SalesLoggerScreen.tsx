@@ -35,6 +35,7 @@ export function SalesLoggerScreen() {
   const insets = useSafeAreaInsets();
 
   const products = useProductStore((state) => state.products);
+  const costGroups = useProductStore((state) => state.costGroups);
   const loadProducts = useProductStore((state) => state.loadProducts);
   const loadProductIngredients = useProductStore((state) => state.loadProductIngredients);
   const getProductById = useProductStore((state) => state.getProductById);
@@ -125,6 +126,8 @@ export function SalesLoggerScreen() {
     const bSize = Math.max(Number(selectedProduct.batchSize || 1), 1);
     const pPieceTotalCost = bTotalCost / bSize;
 
+    const fullyLoadedPerPieceCost = pPieceTotalCost;
+
     let sPrice = isFinite(Number(selectedProduct.sellingPrice)) ? Number(selectedProduct.sellingPrice) : 0;
     const targetMarginVal = isFinite(Number(selectedProduct.targetMargin)) ? Number(selectedProduct.targetMargin) : 0;
     const vPercent = isFinite(Number(selectedProduct.vatPercent)) ? Number(selectedProduct.vatPercent) : 0;
@@ -138,10 +141,10 @@ export function SalesLoggerScreen() {
     sPrice = roundTo(isFinite(sPrice) ? sPrice : 0, 2);
 
     return {
-      perPieceTotalCost: roundTo(pPieceTotalCost || 0, 4),
+      perPieceTotalCost: roundTo(fullyLoadedPerPieceCost || 0, 4),
       sellingPrice: sPrice,
     };
-  }, [selectedProduct, productIngredients]);
+  }, [selectedProduct, productIngredients, costGroups, products]);
 
   const unitsSold = parseUnits(unitsSoldInput);
   const unitsSoldDiscounted = parseUnits(unitsSoldDiscountedInput);

@@ -15,4 +15,5 @@ export type IngredientInput = {
   pricePerUnit: number;
   yieldFactor: number;
   classification: ResourceClassification;
+  tag?: string;
 };

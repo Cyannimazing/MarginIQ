@@ -14,7 +14,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { PRODUCT_CATEGORIES, COST_TYPES } from '../constants/productCategories';
+import { PRODUCT_CATEGORIES } from '../constants/productCategories';
 import { ProductCategory } from '../features/products/types';
 import { PricingMethod } from '../features/settings/types';
 import { RootStackParamList } from '../navigation/types';
@@ -22,6 +22,7 @@ import { useProductStore } from '../stores/productStore';
 import { useSettingsStore } from '../stores/settingsStore';
 import { OptionChip } from '../components/ui/OptionChip';
 import { FormSection } from '../components/ui/FormSection';
+import { ActionModal } from '../components/ui/ActionModal';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'ProductForm'>;
 
@@ -53,6 +54,12 @@ export function ProductFormScreen({ route, navigation }: Props) {
   // Step state
   const [step, setStep] = useState(1);
   const [isSaving, setIsSaving] = useState(false);
+  const [modalState, setModalState] = useState<{
+    visible: boolean;
+    title: string;
+    message: string;
+    isError?: boolean;
+  }>({ visible: false, title: '', message: '' });
 
   // Step 1 — Basic Info
   const [name, setName] = useState(existingProduct?.name ?? '');
@@ -88,6 +95,16 @@ export function ProductFormScreen({ route, navigation }: Props) {
               : settings.defaultTargetFixedProfitAmount),
     ),
   );
+  const [hasDiscount, setHasDiscount] = useState(
+    existingProduct ? Number(existingProduct.discountPercent ?? 0) > 0 : false,
+  );
+  const [discountPercent, setDiscountPercent] = useState(
+    String(
+      existingProduct
+        ? Math.max(Number(existingProduct.discountPercent ?? 0), 0) * 100
+        : (settings.defaultDiscountPercent ?? 0),
+    ),
+  );
 
   useEffect(() => {
     void loadProducts();
@@ -121,32 +138,50 @@ export function ProductFormScreen({ route, navigation }: Props) {
     settings.defaultTargetMarkupPercent, 
     settings.defaultTargetFixedProfitAmount,
     settings.defaultVatEnabled,
-    settings.defaultVatPercent
+    settings.defaultVatPercent,
+    settings.defaultDiscountPercent
   ]);
 
   const validateStep = (): boolean => {
     if (step === 1) {
       if (!name.trim()) {
-        Alert.alert('Required', 'Please enter a product name.');
+        setModalState({ visible: true, title: 'Name Required', message: 'Please enter a product name.', isError: true });
         return false;
+      }
+      // Duplicate name guard (skip check when editing the same product)
+      if (!initialProductId) {
+        const duplicate = products.find(
+          p => p.name.trim().toLowerCase() === name.trim().toLowerCase()
+        );
+        if (duplicate) {
+          setModalState({ visible: true, title: 'Duplicate Product', message: `A product named "${duplicate.name}" already exists. Please use a different name.`, isError: true });
+          return false;
+        }
       }
       return true;
     }
     if (step === 2) {
       const bs = Number(batchSize);
       if (!Number.isInteger(bs) || bs <= 0) {
-        Alert.alert('Invalid Batch Size', 'Batch size must be a whole number greater than 0.');
+        setModalState({ visible: true, title: 'Invalid Batch Size', message: 'Batch size must be a whole number greater than 0.', isError: true });
         return false;
       }
       const val = Number(baseCost);
       if (!Number.isFinite(val) || val < 0) {
-        Alert.alert('Invalid Cost', 'Direct/Base Cost must be 0 or greater.');
+        setModalState({ visible: true, title: 'Invalid Cost', message: 'Direct/Base Cost must be 0 or greater.', isError: true });
         return false;
       }
       if (hasVat) {
         const vat = Number(vatPercent);
         if (!Number.isFinite(vat) || vat < 0 || vat > 100) {
-          Alert.alert('Invalid VAT', 'VAT must be between 0 and 100.');
+          setModalState({ visible: true, title: 'Invalid VAT', message: 'VAT must be between 0 and 100.', isError: true });
+          return false;
+        }
+      }
+      if (hasDiscount) {
+        const discountVal = Number(discountPercent);
+        if (!Number.isFinite(discountVal) || discountVal <= 0 || discountVal >= 100) {
+          setModalState({ visible: true, title: 'Invalid Discount', message: 'Discount % must be greater than 0 and less than 100.', isError: true });
           return false;
         }
       }
@@ -155,11 +190,11 @@ export function ProductFormScreen({ route, navigation }: Props) {
     if (step === 3) {
       const val = Number(pricingValue);
       if (!Number.isFinite(val) || val < 0) {
-        Alert.alert('Invalid Value', 'Please enter a valid pricing value (0 or greater).');
+        setModalState({ visible: true, title: 'Invalid Value', message: 'Please enter a valid pricing value (0 or greater).', isError: true });
         return false;
       }
       if ((pricingMethod === 'margin' || pricingMethod === 'markup') && val >= 100) {
-        Alert.alert('Invalid Value', 'Margin/Markup % must be less than 100.');
+        setModalState({ visible: true, title: 'Invalid Value', message: 'Margin/Markup % must be less than 100.', isError: true });
         return false;
       }
       return true;
@@ -184,16 +219,20 @@ export function ProductFormScreen({ route, navigation }: Props) {
 
     setIsSaving(true);
     try {
+      const resolvedDiscountPercent = hasDiscount
+        ? Math.min(Math.max(Number(discountPercent) || 0, 0), 99) / 100
+        : 0;
       const payload = {
         name: name.trim(),
         category,
         batchSize: Number(batchSize),
         baseCost: Number(baseCost),
         targetMargin,
-        sellingPrice: existingProduct?.sellingPrice ?? 0, 
+        sellingPrice: existingProduct?.sellingPrice ?? 0,
         vatPercent: hasVat ? Number(vatPercent) / 100 : 0,
         pricingMethod,
         monthlyGoalProfit: existingProduct?.monthlyGoalProfit ?? 0,
+        discountPercent: resolvedDiscountPercent,
         monthlyOverhead: Number(monthlyOverhead) || 0,
       };
 
@@ -219,7 +258,7 @@ export function ProductFormScreen({ route, navigation }: Props) {
       
       navigation.goBack();
     } catch {
-      Alert.alert('Save Failed', 'Unable to save product.');
+      setModalState({ visible: true, title: 'Save Failed', message: 'Unable to save product.', isError: true });
     } finally {
       setIsSaving(false);
     }
@@ -326,8 +365,8 @@ export function ProductFormScreen({ route, navigation }: Props) {
                 <Text className="text-[10px] text-brand-400 mt-2 italic font-medium px-1">Cost for wholesale or pre-made items.</Text>
 
                 <View className="mt-4">
-                  <Text className="text-[10px] font-black text-brand-800 uppercase mb-1 tracking-widest">Monthly Overhead ({currencyCode})</Text>
-                  <Text className="text-[10px] text-brand-400 italic font-medium px-1 mb-2">Fixed monthly costs shared by this product (rent, utilities, etc.)</Text>
+                  <Text className="text-[10px] font-black text-brand-800 uppercase mb-1 tracking-widest">Monthly Overhead Cost ({currencyCode})</Text>
+                  <Text className="text-[10px] text-brand-400 italic font-medium px-1 mb-2">Product-specific fixed monthly cost. This will be spread across your batch size for analysis.</Text>
                   <TextInput
                     value={monthlyOverhead}
                     onChangeText={setMonthlyOverhead}
@@ -337,6 +376,7 @@ export function ProductFormScreen({ route, navigation }: Props) {
                     placeholderTextColor="#adb5bd"
                   />
                 </View>
+
             </FormSection>
 
             <FormSection title="Tax Configuration" icon="receipt">
@@ -363,6 +403,35 @@ export function ProductFormScreen({ route, navigation }: Props) {
                     <TextInput
                       value={vatPercent}
                       onChangeText={setVatPercent}
+                      keyboardType="decimal-pad"
+                      className="rounded-[32px] border border-brand-100 bg-brand-50/50 px-5 py-4 text-base text-brand-900 font-bold"
+                    />
+                  </View>
+                )}
+
+                <View className="flex-row items-center justify-between mb-4 mt-6">
+                  <View>
+                    <Text className="text-sm font-black text-brand-900">Discount</Text>
+                    <Text className="text-[10px] text-brand-400 font-bold uppercase tracking-tighter">Enable discount pricing</Text>
+                  </View>
+                  <Switch
+                    value={hasDiscount}
+                    onValueChange={(val) => {
+                      setHasDiscount(val);
+                      if (val && (!discountPercent || Number(discountPercent) <= 0)) {
+                        setDiscountPercent(String(settings.defaultDiscountPercent ?? '0'));
+                      }
+                    }}
+                    trackColor={{ true: '#16a34a' }}
+                    thumbColor={hasDiscount ? '#ffffff' : '#f8f9fa'}
+                  />
+                </View>
+                {hasDiscount && (
+                  <View>
+                    <Text className="text-[10px] font-black text-brand-800 uppercase mb-2 tracking-widest">Discount Rate %</Text>
+                    <TextInput
+                      value={discountPercent}
+                      onChangeText={setDiscountPercent}
                       keyboardType="decimal-pad"
                       className="rounded-[32px] border border-brand-100 bg-brand-50/50 px-5 py-4 text-base text-brand-900 font-bold"
                     />
@@ -457,6 +526,15 @@ export function ProductFormScreen({ route, navigation }: Props) {
       </View>
       </ScrollView>
       </KeyboardAvoidingView>
+
+      <ActionModal
+        visible={modalState.visible}
+        title={modalState.title}
+        message={modalState.message}
+        onPrimaryAction={() => setModalState(prev => ({ ...prev, visible: false }))}
+        isDestructive={!!modalState.isError}
+      />
     </View>
   );
 }
+

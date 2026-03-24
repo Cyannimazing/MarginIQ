@@ -29,6 +29,15 @@ const addIngredientSchema = z.object({
 
 type AddIngredientValues = z.infer<typeof addIngredientSchema>;
 type Props = NativeStackScreenProps<RootStackParamList, 'ProductAddIngredient'>;
+const COST_TYPE_LABELS: Record<string, string> = {
+  ingredients: 'Ingredients',
+  material: 'Material',
+  packaging: 'Packaging',
+  labor: 'Labor',
+  utilities: 'Utilities (Batch)',
+  overhead: 'Overhead (Batch)',
+  other: 'Other',
+};
 
 export function ProductAddIngredientScreen({ route, navigation }: Props) {
   const insets = useSafeAreaInsets();
@@ -101,16 +110,22 @@ export function ProductAddIngredientScreen({ route, navigation }: Props) {
   const activeEditLinkId = localEditGroup?.editLinkId ?? editLinkId;
   const activeInitialItems = localEditGroup?.items ?? initialItems;
 
+  const [searchQuery, setSearchQuery] = useState('');
+  const [activeTag, setActiveTag] = useState<string | null>(null);
+  const [visibleResourceCount, setVisibleResourceCount] = useState(5);
   const [expandedCategories, setExpandedCategories] = useState<Set<string>>(new Set());
 
-  const toggleCategory = (type: string) => {
+  const toggleCategory = useCallback((category: string) => {
     setExpandedCategories((prev) => {
       const next = new Set(prev);
-      if (next.has(type)) next.delete(type);
-      else next.add(type);
+      if (next.has(category)) {
+        next.delete(category);
+      } else {
+        next.add(category);
+      }
       return next;
     });
-  };
+  }, []);
 
   // IDs of ingredients already linked to this product in OTHER compositions
   const alreadyUsedIds = useMemo(() => {
@@ -132,6 +147,52 @@ export function ProductAddIngredientScreen({ route, navigation }: Props) {
     () => ingredients.filter(i => !alreadyUsedIds.has(i.id)),
     [ingredients, alreadyUsedIds]
   );
+
+  // Filtered by search + tag
+  const filteredIngredients = useMemo(() => {
+    return availableIngredients.filter(i => {
+      const matchesSearch = !searchQuery.trim() || i.name.toLowerCase().includes(searchQuery.toLowerCase().trim());
+      const matchesTag = !activeTag || (i as any).tag === activeTag;
+      return matchesSearch && matchesTag;
+    });
+  }, [availableIngredients, searchQuery, activeTag]);
+
+  const availableTags = useMemo(() => {
+    const tags = new Set<string>();
+    availableIngredients.forEach((ingredient) => {
+      const tag = (ingredient as any).tag as string | undefined;
+      if (tag) tags.add(tag);
+    });
+    return Array.from(tags).sort((a, b) => a.localeCompare(b));
+  }, [availableIngredients]);
+
+  const tagCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    availableIngredients.forEach((ingredient) => {
+      const tag = (ingredient as any).tag as string | undefined;
+      if (!tag) return;
+      counts.set(tag, (counts.get(tag) ?? 0) + 1);
+    });
+    return counts;
+  }, [availableIngredients]);
+
+  useEffect(() => {
+    setVisibleResourceCount(5);
+  }, [searchQuery, activeTag]);
+
+  useEffect(() => {
+    if (activeTag && !availableTags.includes(activeTag)) {
+      setActiveTag(null);
+    }
+  }, [activeTag, availableTags]);
+
+  const resourcePageSize = 5;
+  const visibleIngredients = useMemo(
+    () => filteredIngredients.slice(0, visibleResourceCount),
+    [filteredIngredients, visibleResourceCount]
+  );
+  const hiddenResourceCount = Math.max(filteredIngredients.length - visibleIngredients.length, 0);
+  const nextShowCount = Math.min(resourcePageSize, hiddenResourceCount);
 
   const buildInitialItems = () => {
     if (initialItems && initialItems.length > 0) {
@@ -167,7 +228,7 @@ export function ProductAddIngredientScreen({ route, navigation }: Props) {
   }, [productId, editLinkId, initialIngredientId, initialQuantity, initialCostType, initialItems, reset]);
 
   useEffect(() => {
-    void loadIngredients(productId);
+    void loadIngredients(); // load global library
     void loadProductIngredients(productId);
   }, [loadIngredients, loadProductIngredients, productId]);
 
@@ -208,10 +269,9 @@ export function ProductAddIngredientScreen({ route, navigation }: Props) {
         // 2. Prepare Updates and New Items
         const newItems: any[] = [];
         for (const item of values.items) {
-          const originalLink = activeInitialItems.find(i => i.ingredientId === item.ingredientId); 
-          const ingredient = ingredients.find(i => i.id === item.ingredientId);
-          const finalQty = Number(ingredient?.quantity || 1);
-          
+          const originalLink = activeInitialItems.find(i => i.ingredientId === item.ingredientId);
+          const finalQty = Math.max(Number(item.quantityUsed) || 1, 0.00001);
+
           if (originalLink) {
             await editProductIngredient(pId, originalLink.linkId, {
               ingredientId: item.ingredientId,
@@ -234,9 +294,8 @@ export function ProductAddIngredientScreen({ route, navigation }: Props) {
         const primaryIdx = values.items.findIndex(i => i.ingredientId === initialIngredientId);
         const updateIdx = primaryIdx > -1 ? primaryIdx : 0;
         const updateItem = values.items[updateIdx];
-        const ingredient = ingredients.find(i => i.id === updateItem.ingredientId);
-        const finalQty = Number(ingredient?.quantity || 1);
-        
+        const finalQty = Math.max(Number(updateItem.quantityUsed) || 1, 0.00001);
+
         await editProductIngredient(pId, activeEditLinkId!, {
           ingredientId: updateItem.ingredientId,
           quantityUsed: finalQty,
@@ -247,11 +306,10 @@ export function ProductAddIngredientScreen({ route, navigation }: Props) {
         for (let i = 0; i < values.items.length; i++) {
           if (i === updateIdx) continue;
           const extra = values.items[i];
-          const extraIngredient = ingredients.find(ing => ing.id === extra.ingredientId);
           extraItems.push({
             productId: pId,
             ingredientId: extra.ingredientId,
-            quantityUsed: Number(extraIngredient?.quantity || 1),
+            quantityUsed: Math.max(Number(extra.quantityUsed) || 1, 0.00001),
             costType: values.costType,
           });
         }
@@ -259,15 +317,12 @@ export function ProductAddIngredientScreen({ route, navigation }: Props) {
 
       } else {
         // Pure Batch Add mode
-        const toAdd = values.items.map(item => {
-          const ingredient = ingredients.find(i => i.id === item.ingredientId);
-          return {
-            productId: pId,
-            ingredientId: item.ingredientId,
-            quantityUsed: Number(ingredient?.quantity || 1),
-            costType: values.costType,
-          };
-        });
+        const toAdd = values.items.map(item => ({
+          productId: pId,
+          ingredientId: item.ingredientId,
+          quantityUsed: Math.max(Number(item.quantityUsed) || 1, 0.00001),
+          costType: values.costType,
+        }));
         await bulkAddIngredientsToProduct(toAdd);
       }
       
@@ -308,31 +363,142 @@ export function ProductAddIngredientScreen({ route, navigation }: Props) {
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
         <ScrollView className="flex-1 px-6" keyboardShouldPersistTaps="handled">
-          <View className="py-8">
-            <Text className="text-[10px] font-black text-brand-400 uppercase tracking-[4px] mb-2 px-1">Linking Resources To</Text>
-            <Text className="text-3xl font-black text-brand-900 leading-tight px-1">{product?.name || 'Product'}</Text>
-            <View className="flex-row items-center mt-2 px-1">
-              <View className="bg-brand-900 px-3 py-1 rounded-full">
-                <Text className="text-[10px] font-black text-white uppercase tracking-widest">{product?.category || 'General'}</Text>
+          {/* ── Product Context Header ── */}
+          <View className="mt-6 mb-5 rounded-[24px] bg-brand-900 px-5 py-5">
+            <Text className="text-[8px] font-black text-brand-500 uppercase tracking-[4px] mb-1">Composing Resources For</Text>
+            <Text className="text-2xl font-black text-white leading-tight tracking-tighter">{product?.name || 'Product'}</Text>
+            <View className="flex-row items-center mt-2">
+              <View className="bg-white/10 px-3 py-1 rounded-full border border-white/20">
+                <Text className="text-[10px] font-black text-white/80 uppercase tracking-widest">{product?.category || 'General'}</Text>
               </View>
+              {selectedItems.length > 0 && (
+                <View className="ml-2 bg-emerald-500/20 px-3 py-1 rounded-full border border-emerald-500/30">
+                  <Text className="text-[10px] font-black text-emerald-400 uppercase tracking-widest">{selectedItems.length} selected</Text>
+                </View>
+              )}
             </View>
           </View>
-          <FormSection title="Composition" icon="layers">
-            <View className="flex-row flex-wrap gap-2">
-              {availableIngredients.map((ingredient) => (
+
+          <FormSection title="Select from Your Library" icon="layers">
+            {/* Search bar */}
+            <View className="flex-row items-center bg-brand-50/50 rounded-[20px] border border-brand-100 px-4 mb-3 h-11">
+              <Ionicons name="search" size={16} color="#9ca3af" />
+              <TextInput
+                value={searchQuery}
+                onChangeText={setSearchQuery}
+                placeholder="Search resources..."
+                placeholderTextColor="#9ca3af"
+                className="flex-1 ml-2 text-sm text-brand-900 font-semibold"
+              />
+              {searchQuery.length > 0 && (
+                <Pressable onPress={() => setSearchQuery('')} hitSlop={8}>
+                  <Ionicons name="close-circle" size={16} color="#9ca3af" />
+                </Pressable>
+              )}
+            </View>
+
+            {/* Tag filter chips */}
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              className="mb-3"
+              contentContainerStyle={{ paddingRight: 4 }}
+            >
+              <View className="flex-row gap-2">
                 <OptionChip
-                  key={ingredient.id}
-                  label={ingredient.name}
-                  selected={selectedItems.some(i => i.ingredientId === ingredient.id)}
-                  onPress={() => handleToggleIngredient(ingredient.id)}
+                  label={`All (${availableIngredients.length})`}
+                  selected={activeTag === null}
+                  onPress={() => setActiveTag(null)}
                 />
-              ))}
-              
-              <Pressable 
+                {availableTags.map(tag => (
+                  <OptionChip
+                    key={tag}
+                    label={`${tag} (${tagCounts.get(tag) ?? 0})`}
+                    selected={activeTag === tag}
+                    onPress={() => setActiveTag(activeTag === tag ? null : tag)}
+                  />
+                ))}
+              </View>
+            </ScrollView>
+
+            {selectedItems.length > 0 && (
+              <View className="mb-3 rounded-2xl border border-emerald-200 bg-emerald-50 px-3 py-2">
+                <Text className="text-[10px] font-black text-emerald-700 uppercase tracking-widest">
+                  {selectedItems.length} resource{selectedItems.length > 1 ? 's' : ''} selected
+                </Text>
+              </View>
+            )}
+
+            <View className="gap-2">
+              {filteredIngredients.length === 0 && (
+                <Text className="text-[11px] font-semibold text-brand-400 px-1 py-2">
+                  {searchQuery || activeTag ? 'No resources match your filter.' : 'No resources available.'}
+                </Text>
+              )}
+
+              {visibleIngredients.map((ingredient) => {
+                const isSelected = selectedItems.some(i => i.ingredientId === ingredient.id);
+                const refQty = Math.max(Number((ingredient as any).quantity ?? 1), 0.00000001);
+                const yieldFactor = Math.max(Number((ingredient as any).yieldFactor ?? 1), 0.00000001);
+                const unitCost = ((Number((ingredient as any).pricePerUnit) || 0) / refQty) / yieldFactor;
+                const ingredientTag = (ingredient as any).tag as string | undefined;
+
+                return (
+                  <Pressable
+                    key={ingredient.id}
+                    onPress={() => handleToggleIngredient(ingredient.id)}
+                    className="active:opacity-80"
+                  >
+                    <View className={`flex-row items-center rounded-2xl border px-4 py-3 ${isSelected ? 'border-brand-900 bg-brand-900' : 'border-brand-100 bg-white'}`}>
+                      <View className="flex-1 pr-3">
+                        <Text
+                          className={`text-[11px] font-black uppercase tracking-widest ${isSelected ? 'text-white' : 'text-brand-900'}`}
+                          numberOfLines={1}
+                        >
+                          {ingredient.name}
+                        </Text>
+                        <View className="mt-1 flex-row flex-wrap items-center gap-2">
+                          {ingredientTag && (
+                            <View className={`rounded-full border px-2 py-0.5 ${isSelected ? 'border-white/30 bg-white/10' : 'border-brand-200 bg-brand-50'}`}>
+                              <Text className={`text-[9px] font-black uppercase tracking-widest ${isSelected ? 'text-white/90' : 'text-brand-700'}`}>
+                                {ingredientTag}
+                              </Text>
+                            </View>
+                          )}
+                          <Text className={`text-[10px] font-semibold ${isSelected ? 'text-white/80' : 'text-brand-400'}`}>
+                            {formatMoney(unitCost, currencyCode, 3)} / {ingredient.unit}
+                          </Text>
+                        </View>
+                      </View>
+
+                      <View className={`h-6 w-6 items-center justify-center rounded-full border ${isSelected ? 'border-emerald-400 bg-emerald-500' : 'border-brand-200 bg-brand-50'}`}>
+                        {isSelected && <Ionicons name="checkmark" size={14} color="#ffffff" />}
+                      </View>
+                    </View>
+                  </Pressable>
+                );
+              })}
+
+              {hiddenResourceCount > 0 && (
+                <Pressable
+                  onPress={() =>
+                    setVisibleResourceCount((prev) => Math.min(prev + resourcePageSize, filteredIngredients.length))
+                  }
+                  className="self-start active:opacity-70"
+                >
+                  <View className="rounded-full border border-brand-100 bg-brand-50 px-3 py-1.5">
+                    <Text className="text-[10px] font-black uppercase tracking-widest text-brand-900">
+                      {`Show (${nextShowCount})`}
+                    </Text>
+                  </View>
+                </Pressable>
+              )}
+
+              <Pressable
                 onPress={() => navigation.navigate('IngredientForm', { productId })}
-                className="active:opacity-70"
+                className="mt-1 self-start active:opacity-70"
               >
-                <View className="flex-row items-center px-4 py-2 rounded-full bg-brand-50 border border-dashed border-brand-200">
+                <View className="flex-row items-center rounded-full border border-dashed border-brand-200 bg-brand-50 px-4 py-2">
                   <Ionicons name="add-circle" size={14} color="#166534" />
                   <Text className="ml-1 text-[10px] font-black text-brand-900 uppercase tracking-widest">New Resource</Text>
                 </View>
@@ -350,33 +516,54 @@ export function ProductAddIngredientScreen({ route, navigation }: Props) {
                   const displayName = ingredient?.name ?? piInfo?.ingredientName ?? 'Resource';
                   const displayUnit = ingredient?.unit ?? piInfo?.ingredientUnit ?? '';
                   const price = ingredient?.pricePerUnit ?? piInfo?.ingredientPricePerUnit ?? 0;
-                  const purchasedQty = Math.max(Number(ingredient?.quantity ?? piInfo?.ingredientQuantity ?? 1), 0.00000001);
+                  const refQty = Math.max(Number(ingredient?.quantity ?? piInfo?.ingredientQuantity ?? 1), 0.00000001);
                   const yieldFactor = Math.max(Number(ingredient?.yieldFactor ?? piInfo?.ingredientYieldFactor ?? 1), 0.00000001);
-                  const unitCost = (price / purchasedQty) / yieldFactor;
+                  const unitCost = (price / refQty) / yieldFactor;
+                  const usedQty = Math.max(Number(item.quantityUsed) || 0, 0);
+                  const lineCost = unitCost * usedQty;
 
                   if (!displayName) return null;
 
                   return (
-                    <View key={item.ingredientId} className={`flex-row items-center p-4 ${index > 0 ? 'border-t border-brand-100/30' : ''}`}>
-                      <View className="flex-1 mr-3">
-                        <Text className="text-[11px] font-black text-brand-900 uppercase tracking-widest mb-1" numberOfLines={1}>
-                          {displayName}
-                        </Text>
-                        <Text className="text-[10px] font-black text-brand-400 uppercase tracking-[1px]">
-                          {purchasedQty}{displayUnit} × {formatMoney(unitCost, currencyCode, 3)}
-                        </Text>
+                    <View key={item.ingredientId} className={`p-4 ${index > 0 ? 'border-t border-brand-100/30' : ''}`}>
+                      <View className="flex-row items-center mb-2">
+                        <View className="flex-1 mr-2">
+                          <Text className="text-[11px] font-black text-brand-900 uppercase tracking-widest" numberOfLines={1}>
+                            {displayName}
+                          </Text>
+                          <Text className="text-[10px] font-semibold text-brand-400 mt-0.5">
+                            {formatMoney(unitCost, currencyCode, 3)} / {displayUnit}
+                          </Text>
+                        </View>
+                        <View className="items-end mr-3">
+                          <Text className="text-[9px] font-black text-brand-300 uppercase tracking-widest mb-0.5">Cost</Text>
+                          <Text className={`text-sm font-black ${lineCost > 0 ? 'text-emerald-700' : 'text-brand-400'}`}>
+                            {formatMoney(lineCost, currencyCode)}
+                          </Text>
+                        </View>
+                        <Pressable onPress={() => handleToggleIngredient(item.ingredientId)} hitSlop={12}>
+                          <Ionicons name="close-circle" size={20} color="#ef4444" />
+                        </Pressable>
                       </View>
-                      
-                      <View className="items-end mr-4">
-                        <Text className="text-[9px] font-black text-brand-300 uppercase tracking-widest mb-1">TOTAL</Text>
-                        <Text className="text-base font-black text-emerald-700">
-                           {formatMoney(unitCost * purchasedQty, currencyCode)}
-                        </Text>
+                      {/* Quantity used input */}
+                      <View className="flex-row items-center gap-2 mt-1">
+                        <Text className="text-[10px] font-black text-brand-500 uppercase tracking-widest">Qty used per batch</Text>
+                        <View className="flex-1 flex-row items-center bg-white rounded-xl border border-brand-100 px-3 h-9">
+                          <TextInput
+                            value={item.quantityUsed}
+                            onChangeText={(text) => {
+                              const updated = [...selectedItems];
+                              updated[index] = { ...updated[index], quantityUsed: text };
+                              setValue('items', updated, { shouldValidate: true });
+                            }}
+                            keyboardType="decimal-pad"
+                            placeholder="0"
+                            placeholderTextColor="#9ca3af"
+                            className="flex-1 text-sm font-black text-brand-900 p-0"
+                          />
+                          <Text className="text-[10px] font-bold text-brand-400 ml-1">{displayUnit}</Text>
+                        </View>
                       </View>
-
-                      <Pressable onPress={() => handleToggleIngredient(item.ingredientId)} hitSlop={12}>
-                         <Ionicons name="close-circle" size={20} color="#ef4444" />
-                      </Pressable>
                     </View>
                   );
                 })}
@@ -388,24 +575,26 @@ export function ProductAddIngredientScreen({ route, navigation }: Props) {
                       {formatMoney(selectedItems.reduce((sum, item) => {
                         const ing = ingredients.find(i => i.id === item.ingredientId) as any;
                         const pi = productIngredients.find(p => p.ingredientId === item.ingredientId) as any;
-                        
                         const p = ing?.pricePerUnit ?? pi?.ingredientPricePerUnit ?? 0;
                         const q = Math.max(Number(ing?.quantity ?? pi?.ingredientQuantity ?? 1), 0.00000001);
                         const y = Math.max(Number(ing?.yieldFactor ?? pi?.ingredientYieldFactor ?? 1), 0.00000001);
-                        
                         const u = (p / q) / y;
-                        return sum + (u * q);
+                        const usedQty = Math.max(Number(item.quantityUsed) || 0, 0);
+                        return sum + (u * usedQty);
                       }, 0), currencyCode)}
                    </Text>
                 </View>
               </View>
 
               <Text className="text-[10px] font-black text-brand-800 uppercase mt-4 mb-3 tracking-widest px-1">Grouping / Cost Type</Text>
+              <Text className="text-[10px] text-brand-400 italic font-medium px-1 mb-2">
+                Use Overhead/Utilities here only for batch-variable costs. Shared monthly fixed costs belong in Cost Groups.
+              </Text>
               <View className="flex-row flex-wrap gap-2">
                 {COST_TYPES.map((costType) => (
                   <OptionChip
                     key={costType}
-                    label={costType}
+                    label={COST_TYPE_LABELS[costType] ?? costType}
                     selected={selectedCostType === costType}
                     onPress={() => setValue('costType', costType, { shouldValidate: true })}
                   />
@@ -423,6 +612,7 @@ export function ProductAddIngredientScreen({ route, navigation }: Props) {
                 {['ingredients', 'material', 'packaging', 'overhead', 'labor', 'utilities', 'other'].map((costType) => {
                   const groupItems = productIngredients.filter(pi => pi.costType === costType);
                   if (groupItems.length === 0) return null;
+                  const costTypeLabel = COST_TYPE_LABELS[costType] ?? costType;
 
                   const groupTotal = groupItems.reduce((sum, pi) => sum + (getTrueUnitCost(pi) * pi.quantityUsed), 0);
 
@@ -442,7 +632,7 @@ export function ProductAddIngredientScreen({ route, navigation }: Props) {
                               color="#166534" 
                               style={{ marginRight: 6 }}
                             />
-                            <Text className="text-[11px] font-black text-brand-900 uppercase tracking-[2px]">{costType}</Text>
+                            <Text className="text-[11px] font-black text-brand-900 uppercase tracking-[2px]">{costTypeLabel}</Text>
                           </View>
                           
                           {!isExpanded && (
@@ -494,7 +684,7 @@ export function ProductAddIngredientScreen({ route, navigation }: Props) {
                             
                             {/* Group Summary Footer */}
                             <View className="bg-brand-100/30 px-4 py-3 border-t border-brand-100/50 flex-row justify-between items-center">
-                              <Text className="text-[10px] font-black text-brand-900 uppercase tracking-widest">{costType} Total</Text>
+                              <Text className="text-[10px] font-black text-brand-900 uppercase tracking-widest">{costTypeLabel} Total</Text>
                               <Text className="text-lg font-black text-brand-900">{formatMoney(groupTotal, currencyCode)}</Text>
                             </View>
                           </View>

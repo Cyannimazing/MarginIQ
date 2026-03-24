@@ -7,23 +7,40 @@ import {
   listProductIngredientRows, 
   addProductIngredient, 
   bulkAddProductIngredients,
+  createProductCostGroup,
   updateProductIngredient, 
+  updateProductCostGroup,
+  deleteProductCostGroup,
   removeProductIngredient,
   trashProduct,
   restoreProduct,
-  listTrashProducts
+  listTrashProducts,
+  listProductCostGroups,
 } from '../db/queries/products';
-import { Product, ProductInput, ProductIngredientRow, ProductIngredientInput, ProductPricingInput } from '../features/products/types';
+import {
+  Product,
+  ProductCostGroup,
+  ProductCostGroupInput,
+  ProductInput,
+  ProductIngredientRow,
+  ProductIngredientInput,
+  ProductPricingInput,
+} from '../features/products/types';
 
 interface ProductState {
   products: Product[];
+  costGroups: ProductCostGroup[];
   trashProducts: Product[];
   productIngredients: ProductIngredientRow[];
   isLoading: boolean;
   error: string | null;
   loadProducts: () => Promise<void>;
+  loadCostGroups: () => Promise<void>;
   loadTrashProducts: () => Promise<void>;
   addProduct: (input: ProductInput) => Promise<number>;
+  addCostGroup: (input: ProductCostGroupInput) => Promise<number>;
+  editCostGroup: (id: number, input: Partial<ProductCostGroupInput>) => Promise<void>;
+  deleteCostGroup: (id: number) => Promise<void>;
   editProduct: (id: number, input: Partial<ProductInput>) => Promise<void>;
   updateProductPricing: (id: number, input: ProductPricingInput) => Promise<void>;
   trashProduct: (id: number) => Promise<void>;
@@ -57,6 +74,7 @@ const getErrorMessage = (error: unknown) => {
 
 export const useProductStore = create<ProductState>((set, get) => ({
   products: [],
+  costGroups: [],
   trashProducts: [],
   productIngredients: [],
   isLoading: false,
@@ -65,10 +83,59 @@ export const useProductStore = create<ProductState>((set, get) => ({
   loadProducts: async () => {
     set({ isLoading: true, error: null });
     try {
-      const rows = await listProducts();
-      set({ products: [...rows] as Product[], isLoading: false });
+      const [rows, groups] = await Promise.all([listProducts(), listProductCostGroups()]);
+      set({
+        products: [...rows] as Product[],
+        costGroups: [...groups] as ProductCostGroup[],
+        isLoading: false,
+      });
     } catch (error) {
       set({ isLoading: false, error: getErrorMessage(error) });
+    }
+  },
+
+  loadCostGroups: async () => {
+    set({ isLoading: true, error: null });
+    try {
+      const groups = await listProductCostGroups();
+      set({ costGroups: [...groups] as ProductCostGroup[], isLoading: false });
+    } catch (error) {
+      set({ isLoading: false, error: getErrorMessage(error) });
+    }
+  },
+
+  addCostGroup: async (input) => {
+    set({ isLoading: true, error: null });
+    try {
+      const id = await createProductCostGroup(input);
+      await get().loadCostGroups();
+      return id;
+    } catch (error) {
+      set({ isLoading: false, error: getErrorMessage(error) });
+      throw error;
+    }
+  },
+
+  editCostGroup: async (id, input) => {
+    set({ isLoading: true, error: null });
+    try {
+      await updateProductCostGroup(id, input);
+      await get().loadCostGroups();
+    } catch (error) {
+      set({ isLoading: false, error: getErrorMessage(error) });
+      throw error;
+    }
+  },
+
+  deleteCostGroup: async (id) => {
+    set({ isLoading: true, error: null });
+    try {
+      await deleteProductCostGroup(id);
+      await get().loadCostGroups();
+      await get().loadProducts();
+    } catch (error) {
+      set({ isLoading: false, error: getErrorMessage(error) });
+      throw error;
     }
   },
 

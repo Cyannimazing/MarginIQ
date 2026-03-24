@@ -10,6 +10,15 @@ export const ingredients = sqliteTable('ingredients', {
   pricePerUnit: real('price_per_unit').notNull(),
   yieldFactor: real('yield_factor').notNull().default(1),
   classification: text('classification', { enum: ['measurable', 'fixed'] }).notNull().default('measurable'),
+  tag: text('tag').notNull().default('Other'),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+});
+
+export const productCostGroups = sqliteTable('product_cost_groups', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  name: text('name').notNull(),
+  monthlySharedCost: real('monthly_shared_cost').notNull().default(0),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
 });
@@ -18,6 +27,7 @@ export const products = sqliteTable('products', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   name: text('name').notNull(),
   category: text('category').notNull(),
+  costGroupId: integer('cost_group_id'),
   batchSize: integer('batch_size').notNull().default(1),
   baseCost: real('base_cost').notNull().default(0),
   targetMargin: real('target_margin').notNull().default(0.5),
@@ -27,6 +37,7 @@ export const products = sqliteTable('products', {
   monthlyGoalProfit: real('monthly_goal_profit').notNull().default(0),
   discountPercent: real('discount_percent').notNull().default(0.20),
   monthlyOverhead: real('monthly_overhead').notNull().default(0),
+  monthlyProductionQty: real('monthly_production_qty').notNull().default(0),
   isPinned: integer('is_pinned', { mode: 'boolean' }).notNull().default(false),
   color: text('color').notNull().default(''),
   isArchived: integer('is_archived', { mode: 'boolean' }).default(false),

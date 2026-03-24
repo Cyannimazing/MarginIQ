@@ -8,3 +8,6 @@ export const PRODUCT_CATEGORIES = [
 ] as const;
 
 export const COST_TYPES = ['ingredients', 'material', 'packaging', 'overhead', 'labor', 'utilities', 'other'] as const;
+
+export const RESOURCE_TAGS = ['Raw Material', 'Packaging', 'Labor', 'Utilities', 'Other'] as const;
+export type ResourceTag = (typeof RESOURCE_TAGS)[number];

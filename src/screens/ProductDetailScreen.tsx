@@ -19,6 +19,8 @@ import { useSettingsStore } from '../stores/settingsStore';
 import { formatMoney, getCurrencySymbol } from '../utils/currency';
 import { getCurrentMonth, getDailyPeriod } from '../utils/month';
 
+import { ActionModal } from '../components/ui/ActionModal';
+
 type Props = NativeStackScreenProps<RootStackParamList, 'ProductDetail'>;
 
 const PRICING_METHOD_LABELS: Record<string, string> = {
@@ -31,6 +33,7 @@ export function ProductDetailScreen({ route, navigation }: Props) {
   const insets = useSafeAreaInsets();
   const { productId } = route.params;
   const products = useProductStore((state) => state.products);
+  const costGroups = useProductStore((state) => state.costGroups);
   const deleteProduct = useProductStore((state) => state.trashProduct);
   const getProductIngredients = useProductStore((state) => state.getProductIngredients);
   const loadProductIngredients = useProductStore((state) => state.loadProductIngredients);
@@ -71,17 +74,19 @@ export function ProductDetailScreen({ route, navigation }: Props) {
   const [goalInput, setGoalInput] = useState(String(product?.monthlyGoalProfit || '0'));
   const [isSavingGoal, setIsSavingGoal] = useState(false);
 
+  const [modalState, setModalState] = useState<{
+    visible: boolean;
+    title: string;
+    message: string;
+    isError?: boolean;
+    onConfirm?: () => void;
+  }>({ visible: false, title: '', message: '' });
+
   const [isEditingPrice, setIsEditingPrice] = useState(false);
   const [priceInput, setPriceInput] = useState('0');
   const [isSavingPrice, setIsSavingPrice] = useState(false);
 
-  const [isEditingDiscount, setIsEditingDiscount] = useState(false);
-  const [discountInput, setDiscountInput] = useState('');
-  const [isSavingDiscount, setIsSavingDiscount] = useState(false);
 
-  const [isEditingOverhead, setIsEditingOverhead] = useState(false);
-  const [overheadInput, setOverheadInput] = useState('');
-  const [isSavingOverhead, setIsSavingOverhead] = useState(false);
 
   const handleSaveGoal = async () => {
     if (!product) return;
@@ -91,52 +96,29 @@ export function ProductDetailScreen({ route, navigation }: Props) {
       await editProduct(product.id, { monthlyGoalProfit: val });
       setIsGoalExpanded(false);
     } catch (err) {
-      Alert.alert('Error', 'Could not save monthly goal.');
+      setModalState({
+        visible: true,
+        title: 'Error',
+        message: 'Could not save monthly goal.',
+        isError: true,
+      });
     } finally {
       setIsSavingGoal(false);
     }
   };
 
-  const handleSaveDiscount = async () => {
-    if (!product) return;
-    const val = Math.min(Math.max(Number(discountInput) || 0, 0), 99) / 100;
-    try {
-      setIsSavingDiscount(true);
-      await editProduct(product.id, { discountPercent: val });
-      setIsEditingDiscount(false);
-    } catch {
-      Alert.alert('Error', 'Could not save discount.');
-    } finally {
-      setIsSavingDiscount(false);
-    }
-  };
 
-  const handleSaveOverhead = async () => {
-    if (!product) return;
-    const val = Math.max(Number(overheadInput) || 0, 0);
-    try {
-      setIsSavingOverhead(true);
-      await editProduct(product.id, { monthlyOverhead: val });
-      setIsEditingOverhead(false);
-    } catch {
-      Alert.alert('Error', 'Could not save overhead.');
-    } finally {
-      setIsSavingOverhead(false);
-    }
-  };
 
   const handleDelete = () => {
-    Alert.alert('Move to Trash', 'Are you sure you want to move this product to the trash?', [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Move to Trash',
-        style: 'destructive',
-        onPress: async () => {
-          await deleteProduct(product!.id);
-          navigation.goBack();
-        },
+    setModalState({
+      visible: true,
+      title: 'Move to Trash',
+      message: 'Are you sure you want to move this product to the trash?',
+      onConfirm: async () => {
+        await deleteProduct(product!.id);
+        navigation.goBack();
       },
-    ]);
+    });
   };
 
   React.useLayoutEffect(() => {
@@ -351,6 +333,9 @@ export function ProductDetailScreen({ route, navigation }: Props) {
   const vatPercent = isFinite(Number(product.vatPercent)) ? Number(product.vatPercent) : 0;
   const batchSize = Math.max(Number(product.batchSize || 1), 1);
 
+  const linkedCostGroup = costGroups.find(g => g.id === (product as any).costGroupId) ?? null;
+  const sharedGroupMonthlyCost = linkedCostGroup ? Math.max(Number((linkedCostGroup as any).monthlySharedCost) || 0, 0) : 0;
+
   const targetLabel = product.pricingMethod === 'markup' ? 'Target markup'
     : product.pricingMethod === 'fixed' ? 'Target profit (batch)'
       : 'Target margin';
@@ -406,7 +391,7 @@ export function ProductDetailScreen({ route, navigation }: Props) {
     <View className="flex-1 bg-white">
       <ScrollView className="flex-1">
         <View style={{ height: 20 }} />
-        <View className="px-5 pb-20">
+        <View className="px-5 pb-28">
 
           {/* Product Header */}
           <View className="mb-5 px-1">
@@ -628,27 +613,24 @@ export function ProductDetailScreen({ route, navigation }: Props) {
               <View className="h-px bg-brand-50 my-2.5" />
               <SummaryRow label={targetLabel} value={targetValueFormatted} />
               <View className="h-px bg-brand-50 my-2.5" />
-              <SummaryRow label="VAT rate" value={`${(vatPercent * 100).toFixed(0)}%`} />
-              <View className="h-px bg-brand-50 my-2.5" />
-              <View className="flex-row items-center justify-between py-0.5">
-                <Text className="flex-1 pr-2 text-[11px] font-semibold text-brand-500">Discount rate</Text>
-                <Pressable onPress={() => { setDiscountInput(String(discountPctDisplay)); setIsEditingDiscount(true); }}>
-                  <View className="flex-row items-center gap-1.5 bg-amber-50 px-3 py-1 rounded-full border border-amber-100">
-                    <Text className="text-[11px] font-black text-amber-700">{discountPctDisplay}%</Text>
-                    <Ionicons name="create-outline" size={12} color="#b45309" />
-                  </View>
-                </Pressable>
-              </View>
-              <View className="h-px bg-brand-50 my-2.5" />
-              <View className="flex-row items-center justify-between py-0.5">
-                <Text className="flex-1 pr-2 text-[11px] font-semibold text-brand-500">Monthly overhead</Text>
-                <Pressable onPress={() => { setOverheadInput(String(monthlyOverhead)); setIsEditingOverhead(true); }}>
-                  <View className="flex-row items-center gap-1.5 bg-blue-50 px-3 py-1 rounded-full border border-blue-100">
-                    <Text className="text-[11px] font-black text-blue-700">{formatMoney(monthlyOverhead, currencyCode)}</Text>
-                    <Ionicons name="create-outline" size={12} color="#1d4ed8" />
-                  </View>
-                </Pressable>
-              </View>
+              {vatPercent > 0 && (
+                <>
+                  <SummaryRow label="VAT rate" value={`${(vatPercent * 100).toFixed(0)}%`} />
+                  <View className="h-px bg-brand-50 my-2.5" />
+                </>
+              )}
+              {discountPercent > 0 && (
+                <>
+                  <SummaryRow label="Discount rate" value={`${discountPctDisplay}%`} />
+                  <View className="h-px bg-brand-50 my-2.5" />
+                </>
+              )}
+              {(sharedGroupMonthlyCost > 0 || monthlyOverhead > 0) && (
+                <SummaryRow 
+                  label={linkedCostGroup ? 'Group monthly overhead' : 'Monthly overhead'} 
+                  value={formatMoney(linkedCostGroup ? sharedGroupMonthlyCost : monthlyOverhead, currencyCode)} 
+                />
+              )}
             </View>
           </View>
 
@@ -724,25 +706,27 @@ export function ProductDetailScreen({ route, navigation }: Props) {
           </View>
 
           {/* ── Special Discount (PWD / Senior) ── */}
-          <View className="mb-4 rounded-[24px] bg-white border border-amber-100 overflow-hidden shadow-sm">
-            <View className="bg-amber-600 px-5 py-3">
-              <Text className="text-[8px] font-black text-amber-100 uppercase tracking-[3px]">Special Discount · PWD / Senior — {discountPctDisplay}% off</Text>
+          {discountPercent > 0 && (
+            <View className="mb-4 rounded-[24px] bg-white border border-amber-100 overflow-hidden shadow-sm">
+              <View className="bg-amber-600 px-5 py-3">
+                <Text className="text-[8px] font-black text-amber-100 uppercase tracking-[3px]">Special Discount · PWD / Senior — {discountPctDisplay}% off</Text>
+              </View>
+              <View className="p-5 gap-2">
+                <SummaryRow label="Discounted price" value={formatMoney(discountedPrice, currencyCode)} />
+                <View className="h-px bg-brand-50 my-1" />
+                <SummaryRow
+                  label="Profit if discounted"
+                  value={formatMoney(profitIfDiscounted, currencyCode)}
+                  color={profitIfDiscounted > 0 ? 'text-emerald-700 font-black text-sm' : 'text-red-500 font-black text-sm'}
+                />
+                <SummaryRow
+                  label="Margin if discounted"
+                  value={`${marginIfDiscounted.toFixed(1)}%`}
+                  color={marginIfDiscounted > 0 ? 'text-emerald-700 font-black text-sm' : 'text-red-500 font-black text-sm'}
+                />
+              </View>
             </View>
-            <View className="p-5 gap-2">
-              <SummaryRow label="Discounted price" value={formatMoney(discountedPrice, currencyCode)} />
-              <View className="h-px bg-brand-50 my-1" />
-              <SummaryRow
-                label="Profit if discounted"
-                value={formatMoney(profitIfDiscounted, currencyCode)}
-                color={profitIfDiscounted > 0 ? 'text-emerald-700 font-black text-sm' : 'text-red-500 font-black text-sm'}
-              />
-              <SummaryRow
-                label="Margin if discounted"
-                value={`${marginIfDiscounted.toFixed(1)}%`}
-                color={marginIfDiscounted > 0 ? 'text-emerald-700 font-black text-sm' : 'text-red-500 font-black text-sm'}
-              />
-            </View>
-          </View>
+          )}
 
           {/* ── Monthly Overhead Impact ── */}
           {monthlyOverhead > 0 && (
@@ -826,90 +810,19 @@ export function ProductDetailScreen({ route, navigation }: Props) {
         </View>
       </Modal>
 
-      {/* ── Discount % Modal ── */}
-      <Modal visible={isEditingDiscount} transparent animationType="fade">
-        <View className="flex-1 justify-center items-center px-6" style={{ backgroundColor: 'rgba(0,0,0,0.6)' }}>
-          <View className="bg-white w-full rounded-[32px] p-6 shadow-2xl pb-8 top-[-5%]">
-            <View className="items-center mb-6">
-              <Text className="text-xl font-black text-brand-900 mb-1">Discount Rate</Text>
-              <Text className="text-[10px] font-bold text-brand-400 text-center uppercase tracking-widest mt-1">
-                Enter the discount percentage (e.g. 20 for 20%)
-              </Text>
-            </View>
-            <View className="flex-row items-center bg-amber-50/50 rounded-[24px] py-4 px-2 border border-amber-100 mb-8">
-              <TextInput
-                className="text-5xl font-black text-amber-900 p-0 flex-1 tracking-tighter h-[55px] text-center"
-                keyboardType="decimal-pad"
-                value={discountInput}
-                onChangeText={setDiscountInput}
-                autoFocus
-                selectTextOnFocus
-              />
-              <Text className="text-3xl font-black text-amber-700 pr-4">%</Text>
-            </View>
-            <View className="flex-row gap-3">
-              <Pressable className="flex-1" onPress={() => setIsEditingDiscount(false)}>
-                <View className="h-14 items-center justify-center rounded-[20px] bg-red-50 border border-red-100">
-                  <Text className="font-bold text-red-500 uppercase tracking-widest text-[11px]">Cancel</Text>
-                </View>
-              </Pressable>
-              <Pressable className="flex-[1.5]" onPress={handleSaveDiscount} disabled={isSavingDiscount}>
-                <View className="h-14 items-center justify-center rounded-[20px] bg-amber-500 flex-row gap-2">
-                  {isSavingDiscount ? <ActivityIndicator color="#fff" size="small" /> : (
-                    <>
-                      <Ionicons name="checkmark-circle" size={18} color="#fff" />
-                      <Text className="font-black text-white uppercase tracking-widest text-[11px]">Save Discount</Text>
-                    </>
-                  )}
-                </View>
-              </Pressable>
-            </View>
-          </View>
-        </View>
-      </Modal>
-
-      {/* ── Monthly Overhead Modal ── */}
-      <Modal visible={isEditingOverhead} transparent animationType="fade">
-        <View className="flex-1 justify-center items-center px-6" style={{ backgroundColor: 'rgba(0,0,0,0.6)' }}>
-          <View className="bg-white w-full rounded-[32px] p-6 shadow-2xl pb-8 top-[-5%]">
-            <View className="items-center mb-6">
-              <Text className="text-xl font-black text-brand-900 mb-1">Monthly Overhead</Text>
-              <Text className="text-[10px] font-bold text-brand-400 text-center uppercase tracking-widest mt-1">
-                Fixed monthly costs for this product (rent, utilities, etc.)
-              </Text>
-            </View>
-            <View className="flex-row items-center bg-blue-50/50 rounded-[24px] py-4 px-2 border border-blue-100 mb-8">
-              <Text className="text-3xl font-black text-blue-700 pl-4 pr-1">{getCurrencySymbol(currencyCode)}</Text>
-              <TextInput
-                className="text-5xl font-black text-blue-900 p-0 flex-1 tracking-tighter h-[55px]"
-                keyboardType="decimal-pad"
-                value={overheadInput}
-                onChangeText={setOverheadInput}
-                autoFocus
-                selectTextOnFocus
-              />
-            </View>
-            <View className="flex-row gap-3">
-              <Pressable className="flex-1" onPress={() => setIsEditingOverhead(false)}>
-                <View className="h-14 items-center justify-center rounded-[20px] bg-red-50 border border-red-100">
-                  <Text className="font-bold text-red-500 uppercase tracking-widest text-[11px]">Cancel</Text>
-                </View>
-              </Pressable>
-              <Pressable className="flex-[1.5]" onPress={handleSaveOverhead} disabled={isSavingOverhead}>
-                <View className="h-14 items-center justify-center rounded-[20px] bg-blue-600 flex-row gap-2">
-                  {isSavingOverhead ? <ActivityIndicator color="#fff" size="small" /> : (
-                    <>
-                      <Ionicons name="checkmark-circle" size={18} color="#fff" />
-                      <Text className="font-black text-white uppercase tracking-widest text-[11px]">Save Overhead</Text>
-                    </>
-                  )}
-                </View>
-              </Pressable>
-            </View>
-          </View>
-        </View>
-      </Modal>
-
+      <ActionModal
+        visible={modalState.visible}
+        title={modalState.title}
+        message={modalState.message}
+        primaryActionText={modalState.isError ? 'OK' : 'Move'}
+        secondaryActionText={modalState.isError ? undefined : 'Cancel'}
+        isDestructive={!modalState.isError}
+        onPrimaryAction={() => {
+          setModalState((s) => ({ ...s, visible: false }));
+          if (modalState.onConfirm) modalState.onConfirm();
+        }}
+        onSecondaryAction={() => setModalState((s) => ({ ...s, visible: false }))}
+      />
     </View>
   );
 }

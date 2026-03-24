@@ -6,6 +6,7 @@ import { Alert, Pressable, ScrollView, Share, Text, TextInput, View } from 'reac
 import { useProductStore } from '../stores/productStore';
 import { useSalesStore } from '../stores/salesStore';
 import { useSettingsStore } from '../stores/settingsStore';
+import { ActionModal } from '../components/ui/ActionModal';
 import { formatMoney } from '../utils/currency';
 import { compareMonths, isMonthInRange, isValidMonth } from '../utils/month';
 
@@ -147,6 +148,12 @@ export function ReportsScreen() {
   }, [availableMonths, endMonth, startMonth]);
 
   const isRangeFilterActive = isValidMonth(startMonth) && isValidMonth(endMonth);
+
+  const [modalState, setModalState] = useState<{
+    visible: boolean;
+    title: string;
+    message: string;
+  }>({ visible: false, title: '', message: '' });
   const hasValidRange = !isRangeFilterActive || isMonthRangeValid(startMonth, endMonth);
 
   const filteredEntries = useMemo(() => {
@@ -333,25 +340,25 @@ export function ReportsScreen() {
 
   const handleShareText = async () => {
     if (!filteredEntries.length) {
-      Alert.alert('No Data', 'No report entries found for the current filters.');
+      setModalState({ visible: true, title: 'No Data', message: 'No report entries found for the current filters.' });
       return;
     }
 
     try {
       await Share.share({ message: reportText });
     } catch {
-      Alert.alert('Share Failed', 'Unable to open share sheet right now.');
+      setModalState({ visible: true, title: 'Share Failed', message: 'Unable to open share sheet right now.' });
     }
   };
 
   const handleExportPdf = async () => {
     if (!filteredEntries.length) {
-      Alert.alert('No Data', 'No report entries found for the current filters.');
+      setModalState({ visible: true, title: 'No Data', message: 'No report entries found for the current filters.' });
       return;
     }
 
     if (isRangeFilterActive && !hasValidRange) {
-      Alert.alert('Invalid Range', 'Start month must be less than or equal to end month.');
+      setModalState({ visible: true, title: 'Invalid Range', message: 'Start month must be less than or equal to end month.' });
       return;
     }
 
@@ -387,193 +394,202 @@ export function ReportsScreen() {
 
       await Share.share({ message: reportText });
     } catch {
-      Alert.alert('Export Failed', 'Unable to export PDF right now.');
+      setModalState({ visible: true, title: 'Export Failed', message: 'Unable to export PDF right now.' });
     }
   };
 
   return (
-    <ScrollView className="flex-1 bg-white">
-      <View className="px-4 pb-10 pt-4">
+    <View className="flex-1 bg-white">
+      <ScrollView className="flex-1 bg-white">
+        <View className="px-4 pb-28 pt-4">
 
-        <Text className="mb-2 mt-5 text-sm font-semibold text-slate-800">Product</Text>
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerClassName="gap-2 pr-2"
-        >
-          <FilterChip
-            label="All Products"
-            selected={selectedProduct === 'all'}
-            onPress={() => setSelectedProduct('all')}
-          />
-          {products.map((product) => (
+          <Text className="mb-2 mt-5 text-sm font-semibold text-slate-800">Product</Text>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerClassName="gap-2 pr-2"
+          >
             <FilterChip
-              key={product.id}
-              label={product.name}
-              selected={selectedProduct === product.id}
-              onPress={() => setSelectedProduct(product.id)}
+              label="All Products"
+              selected={selectedProduct === 'all'}
+              onPress={() => setSelectedProduct('all')}
             />
-          ))}
-        </ScrollView>
+            {products.map((product) => (
+              <FilterChip
+                key={product.id}
+                label={product.name}
+                selected={selectedProduct === product.id}
+                onPress={() => setSelectedProduct(product.id)}
+              />
+            ))}
+          </ScrollView>
 
-        <Text className="mb-2 mt-4 text-sm font-semibold text-slate-800">Month</Text>
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerClassName="gap-2 pr-2"
-        >
-          <FilterChip
-            label="All Months"
-            selected={selectedMonth === 'all'}
-            onPress={() => setSelectedMonth('all')}
-          />
-          {availableMonths.map((month) => (
+          <Text className="mb-2 mt-4 text-sm font-semibold text-slate-800">Month</Text>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerClassName="gap-2 pr-2"
+          >
             <FilterChip
-              key={month}
-              label={formatMonthLabel(month)}
-              selected={selectedMonth === month}
-              onPress={() => setSelectedMonth(month)}
+              label="All Months"
+              selected={selectedMonth === 'all'}
+              onPress={() => setSelectedMonth('all')}
             />
-          ))}
-        </ScrollView>
+            {availableMonths.map((month) => (
+              <FilterChip
+                key={month}
+                label={formatMonthLabel(month)}
+                selected={selectedMonth === month}
+                onPress={() => setSelectedMonth(month)}
+              />
+            ))}
+          </ScrollView>
 
-        <Text className="mb-2 mt-4 text-sm font-semibold text-slate-800">Date Range filter</Text>
-        <View className="flex-row gap-3">
-          <View className="flex-1">
-            <Text className="mb-1 text-xs text-slate-500">Start (YYYY-MM)</Text>
-            <TextInput
-              value={startMonth}
-              onChangeText={setStartMonth}
-              placeholder="2026-01"
-              autoCapitalize="none"
-              className="rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-base text-slate-900"
-              placeholderTextColor="#94a3b8"
-            />
-          </View>
-          <View className="flex-1">
-            <Text className="mb-1 text-xs text-slate-500">End (YYYY-MM)</Text>
-            <TextInput
-              value={endMonth}
-              onChangeText={setEndMonth}
-              placeholder="2026-03"
-              autoCapitalize="none"
-              className="rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-base text-slate-900"
-              placeholderTextColor="#94a3b8"
-            />
-          </View>
-        </View>
-        {isRangeFilterActive && !hasValidRange ? (
-          <Text className="mt-2 text-sm text-red-600">
-            Invalid range. Start month must be less than or equal to end month.
-          </Text>
-        ) : (
-          <Text className="mt-2 text-xs text-slate-500">
-            Optional range filter applies only when both start and end are valid YYYY-MM.
-          </Text>
-        )}
-
-        <View className="mt-4 gap-2 rounded-2xl border border-slate-200 bg-white p-3">
-          <Text className="text-sm font-bold text-slate-900">Summary</Text>
-          <MetricRow label="Entries" value={String(filteredEntries.length)} />
-          <MetricRow label="Revenue" value={formatMoney(totals.revenue, currencyCode)} />
-          <MetricRow label="Cost" value={formatMoney(totals.cost, currencyCode)} />
-          <MetricRow
-            label="Profit"
-            value={formatMoney(totals.profit, currencyCode)}
-            strong
-          />
-          <MetricRow
-            label="Shortfall"
-            value={formatMoney(totals.shortfall, currencyCode)}
-          />
-          <MetricRow label="Units Sold" value={String(totals.sold)} />
-          <MetricRow label="Units Unsold" value={String(totals.unsold)} />
-        </View>
-
-        <View className="mt-4 rounded-2xl border border-slate-200 bg-white p-3">
-          <Text className="text-sm font-bold text-slate-900">Monthly Breakdown</Text>
-          {groupedByMonth.length ? (
-            <View className="mt-2 gap-2">
-              {groupedByMonth.map((item) => (
-                <View
-                  key={item.month}
-                  className="rounded-xl border border-slate-100 bg-slate-50 p-2.5"
-                >
-                  <Text className="text-xs font-semibold text-slate-800">{formatMonthLabel(item.month)}</Text>
-                  <Text className="mt-1 text-[11px] text-slate-600">
-                    Revenue {formatMoney(item.revenue, currencyCode)} • Profit{' '}
-                    {formatMoney(item.profit, currencyCode)}
-                  </Text>
-                  <Text className="mt-1 text-[11px] text-slate-600">
-                    Sold {item.sold} • Unsold {item.unsold}
-                  </Text>
-                </View>
-              ))}
+          <Text className="mb-2 mt-4 text-sm font-semibold text-slate-800">Date Range filter</Text>
+          <View className="flex-row gap-3">
+            <View className="flex-1">
+              <Text className="mb-1 text-xs text-slate-500">Start (YYYY-MM)</Text>
+              <TextInput
+                value={startMonth}
+                onChangeText={setStartMonth}
+                placeholder="2026-01"
+                autoCapitalize="none"
+                className="rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-base text-slate-900"
+                placeholderTextColor="#94a3b8"
+              />
             </View>
-          ) : (
-            <Text className="mt-2 text-sm text-slate-500">No monthly data for current filters.</Text>
-          )}
-        </View>
-
-        <View className="mt-4 rounded-2xl border border-slate-200 bg-white p-3">
-          <Text className="text-sm font-bold text-slate-900">Per-Product Breakdown</Text>
-          {groupedByProduct.length ? (
-            <View className="mt-2 gap-2">
-              {groupedByProduct.map((item) => (
-                <View
-                  key={item.productId}
-                  className="rounded-xl border border-slate-100 bg-slate-50 p-2.5"
-                >
-                  <Text className="text-xs font-semibold text-slate-800">
-                    {item.productName}
-                  </Text>
-                  <Text className="mt-1 text-[11px] text-slate-600">
-                    Revenue {formatMoney(item.revenue, currencyCode)} • Profit{' '}
-                    {formatMoney(item.profit, currencyCode)}
-                  </Text>
-                  <Text className="mt-1 text-[11px] text-slate-600">
-                    Sold {item.sold} • Unsold {item.unsold}
-                  </Text>
-                </View>
-              ))}
+            <View className="flex-1">
+              <Text className="mb-1 text-xs text-slate-500">End (YYYY-MM)</Text>
+              <TextInput
+                value={endMonth}
+                onChangeText={setEndMonth}
+                placeholder="2026-03"
+                autoCapitalize="none"
+                className="rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-base text-slate-900"
+                placeholderTextColor="#94a3b8"
+              />
             </View>
+          </View>
+          {isRangeFilterActive && !hasValidRange ? (
+            <Text className="mt-2 text-sm text-red-600">
+              Invalid range. Start month must be less than or equal to end month.
+            </Text>
           ) : (
-            <Text className="mt-2 text-sm text-slate-500">No product data for current filters.</Text>
+            <Text className="mt-2 text-xs text-slate-500">
+              Optional range filter applies only when both start and end are valid YYYY-MM.
+            </Text>
           )}
-        </View>
 
-        <View className="mt-4 rounded-2xl border border-slate-200 bg-white p-3">
-          <Text className="text-sm font-bold text-slate-900">Preview</Text>
-          <Text className="mt-2 text-xs leading-5 text-slate-700">{reportText}</Text>
-        </View>
-
-        <Pressable
-          onPress={() => {
-            void handleExportPdf();
-          }}
-          disabled={isLoadingSales}
-        >
-          <View className={`mt-5 items-center rounded-xl bg-brand-600 py-3 ${
-            isLoadingSales ? 'opacity-70' : ''
-          }`}>
-            <Text className="font-semibold text-white">Export PDF</Text>
+          <View className="mt-4 gap-2 rounded-2xl border border-slate-200 bg-white p-3">
+            <Text className="text-sm font-bold text-slate-900">Summary</Text>
+            <MetricRow label="Entries" value={String(filteredEntries.length)} />
+            <MetricRow label="Revenue" value={formatMoney(totals.revenue, currencyCode)} />
+            <MetricRow label="Cost" value={formatMoney(totals.cost, currencyCode)} />
+            <MetricRow
+              label="Profit"
+              value={formatMoney(totals.profit, currencyCode)}
+              strong
+            />
+            <MetricRow
+              label="Shortfall"
+              value={formatMoney(totals.shortfall, currencyCode)}
+            />
+            <MetricRow label="Units Sold" value={String(totals.sold)} />
+            <MetricRow label="Units Unsold" value={String(totals.unsold)} />
           </View>
-        </Pressable>
 
-        <Pressable
-          onPress={() => {
-            void handleShareText();
-          }}
-          disabled={isLoadingSales}
-        >
-          <View className={`mt-3 items-center rounded-xl border border-brand-600 bg-white py-3 ${
-            isLoadingSales ? 'opacity-70' : ''
-          }`}>
-            <Text className="font-semibold text-brand-600">Share Text Summary</Text>
+          <View className="mt-4 rounded-2xl border border-slate-200 bg-white p-3">
+            <Text className="text-sm font-bold text-slate-900">Monthly Breakdown</Text>
+            {groupedByMonth.length ? (
+              <View className="mt-2 gap-2">
+                {groupedByMonth.map((item) => (
+                  <View
+                    key={item.month}
+                    className="rounded-xl border border-slate-100 bg-slate-50 p-2.5"
+                  >
+                    <Text className="text-xs font-semibold text-slate-800">{formatMonthLabel(item.month)}</Text>
+                    <Text className="mt-1 text-[11px] text-slate-600">
+                      Revenue {formatMoney(item.revenue, currencyCode)} • Profit{' '}
+                      {formatMoney(item.profit, currencyCode)}
+                    </Text>
+                    <Text className="mt-1 text-[11px] text-slate-600">
+                      Sold {item.sold} • Unsold {item.unsold}
+                    </Text>
+                  </View>
+                ))}
+              </View>
+            ) : (
+              <Text className="mt-2 text-sm text-slate-500">No monthly data for current filters.</Text>
+            )}
           </View>
-        </Pressable>
-      </View>
-    </ScrollView>
+
+          <View className="mt-4 rounded-2xl border border-slate-200 bg-white p-3">
+            <Text className="text-sm font-bold text-slate-900">Per-Product Breakdown</Text>
+            {groupedByProduct.length ? (
+              <View className="mt-2 gap-2">
+                {groupedByProduct.map((item) => (
+                  <View
+                    key={item.productId}
+                    className="rounded-xl border border-slate-100 bg-slate-50 p-2.5"
+                  >
+                    <Text className="text-xs font-semibold text-slate-800">
+                      {item.productName}
+                    </Text>
+                    <Text className="mt-1 text-[11px] text-slate-600">
+                      Revenue {formatMoney(item.revenue, currencyCode)} • Profit{' '}
+                      {formatMoney(item.profit, currencyCode)}
+                    </Text>
+                    <Text className="mt-1 text-[11px] text-slate-600">
+                      Sold {item.sold} • Unsold {item.unsold}
+                    </Text>
+                  </View>
+                ))}
+              </View>
+            ) : (
+              <Text className="mt-2 text-sm text-slate-500">No product data for current filters.</Text>
+            )}
+          </View>
+
+          <View className="mt-4 rounded-2xl border border-slate-200 bg-white p-3">
+            <Text className="text-sm font-bold text-slate-900">Preview</Text>
+            <Text className="mt-2 text-xs leading-5 text-slate-700">{reportText}</Text>
+          </View>
+
+          <Pressable
+            onPress={() => {
+              void handleExportPdf();
+            }}
+            disabled={isLoadingSales}
+          >
+            <View className={`mt-5 items-center rounded-xl bg-brand-600 py-3 ${
+              isLoadingSales ? 'opacity-70' : ''
+            }`}>
+              <Text className="font-semibold text-white">Export PDF</Text>
+            </View>
+          </Pressable>
+
+          <Pressable
+            onPress={() => {
+              void handleShareText();
+            }}
+            disabled={isLoadingSales}
+          >
+            <View className={`mt-3 items-center rounded-xl border border-brand-600 bg-white py-3 ${
+              isLoadingSales ? 'opacity-70' : ''
+            }`}>
+              <Text className="font-semibold text-brand-600">Share Text Summary</Text>
+            </View>
+          </Pressable>
+        </View>
+      </ScrollView>
+
+      <ActionModal
+        visible={modalState.visible}
+        title={modalState.title}
+        message={modalState.message}
+        onPrimaryAction={() => setModalState({ ...modalState, visible: false })}
+      />
+    </View>
   );
 }
 
