@@ -1,9 +1,12 @@
 import React from 'react';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useFocusEffect } from '@react-navigation/native';
 import {
   Alert,
+  BackHandler,
   KeyboardAvoidingView,
+  Modal,
   Platform,
   Pressable,
   ScrollView,
@@ -18,11 +21,13 @@ import { PRODUCT_CATEGORIES } from '../constants/productCategories';
 import { ProductCategory } from '../features/products/types';
 import { PricingMethod } from '../features/settings/types';
 import { RootStackParamList } from '../navigation/types';
+import { useIngredientStore } from '../stores/ingredientStore';
 import { useProductStore } from '../stores/productStore';
 import { useSettingsStore } from '../stores/settingsStore';
 import { OptionChip } from '../components/ui/OptionChip';
 import { FormSection } from '../components/ui/FormSection';
 import { ActionModal } from '../components/ui/ActionModal';
+import { safeNavigate } from '../navigation/navigationService';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'ProductForm'>;
 
@@ -42,24 +47,135 @@ export function ProductFormScreen({ route, navigation }: Props) {
   const loadProducts = useProductStore((state) => state.loadProducts);
   const addProduct = useProductStore((state) => state.addProduct);
   const editProduct = useProductStore((state) => state.editProduct);
+  const getProductSalePackages = useProductStore((state) => state.getProductSalePackages);
+  const loadProductSalePackages = useProductStore((state) => state.loadProductSalePackages);
+  const addProductSalePackage = useProductStore((state) => state.addProductSalePackage);
+  
+  const getProductIngredients = useProductStore((state) => state.getProductIngredients);
+  const loadProductIngredients = useProductStore((state) => state.loadProductIngredients);
+  const addIngredientToProduct = useProductStore((state) => state.addIngredientToProduct);
+  const removeIngredientFromProduct = useProductStore((state) => state.removeIngredientFromProduct);
+  const removeProduct = useProductStore((state) => state.removeProduct);
+  
+  const ingredients = useIngredientStore((state) => state.ingredients);
+  const loadIngredients = useIngredientStore((state) => state.loadIngredients);
+  const addIngredient = useIngredientStore((state) => state.addIngredient);
+  
   const settings = useSettingsStore((state) => state.settings);
+  const currencyCode = settings.currencyCode;
 
   const existingProduct = useMemo(
     () => (initialProductId ? products.find((item) => Number(item.id) === Number(initialProductId)) : undefined),
     [products, initialProductId],
   );
 
-  const currencyCode = settings.currencyCode;
-
   // Step state
   const [step, setStep] = useState(1);
   const [isSaving, setIsSaving] = useState(false);
+  const [autoCreatedId, setAutoCreatedId] = useState<number | null>(null);
   const [modalState, setModalState] = useState<{
     visible: boolean;
     title: string;
     message: string;
     isError?: boolean;
   }>({ visible: false, title: '', message: '' });
+  const [showExitConfirm, setShowExitConfirm] = useState(false);
+
+  const [packageModalVisible, setPackageModalVisible] = useState(false);
+  const [newPackageName, setNewPackageName] = useState('');
+  const [newPackagePieces, setNewPackagePieces] = useState('');
+  const [isSavingPackage, setIsSavingPackage] = useState(false);
+
+  // Consumables State
+  const [selectedConsumables, setSelectedConsumables] = useState<number[]>([]);
+  const [consumableSearch, setConsumableSearch] = useState('');
+
+  const effectiveProductId = initialProductId || autoCreatedId || null;
+  const productSalePackages = effectiveProductId ? getProductSalePackages(effectiveProductId) : [];
+  const existingProductIngredients = effectiveProductId ? getProductIngredients(effectiveProductId) : [];
+
+  useEffect(() => {
+    void loadIngredients();
+    if (effectiveProductId) {
+      void loadProductSalePackages(effectiveProductId);
+      void loadProductIngredients(effectiveProductId);
+    }
+  }, [effectiveProductId, loadProductSalePackages, loadProductIngredients, loadIngredients]);
+
+  useFocusEffect(
+    useCallback(() => {
+      void loadIngredients();
+      if (effectiveProductId) {
+        void loadProductIngredients(effectiveProductId);
+      }
+    }, [loadIngredients, loadProductIngredients, effectiveProductId])
+  );
+
+  // Pre-populate selectedConsumables once ingredients are loaded
+  useEffect(() => {
+    if (initialProductId && existingProductIngredients.length > 0) {
+      const packagingItems = existingProductIngredients
+        .filter(pi => pi.costType === 'packaging' || pi.costType === 'material')
+        .map(pi => pi.ingredientId);
+      
+      setSelectedConsumables(prev => {
+        // Only merge if not strictly identical to prevent loops
+        const currentSet = new Set(prev);
+        const hasNew = packagingItems.some(id => !currentSet.has(id));
+        return hasNew ? Array.from(new Set([...prev, ...packagingItems])) : prev;
+      });
+    }
+  }, [existingProductIngredients, initialProductId]);
+
+  const toggleConsumable = (ingredientId: number) => {
+    setSelectedConsumables((prev) => 
+      prev.includes(ingredientId) 
+        ? prev.filter((id) => id !== ingredientId)
+        : [...prev, ingredientId]
+    );
+  };
+
+  const handleQuickAddConsumable = async () => {
+    const name = consumableSearch.trim();
+    if (!name) return;
+    
+    // Quick create as a Fixed Classification item by default, with 0 cost.
+    try {
+      const ingId = await addIngredient({
+        productId: 0,
+        name,
+        unit: 'pcs',
+        quantity: 1,
+        pricePerUnit: 0,
+        yieldFactor: 1,
+        classification: 'fixed',
+        tag: 'Packaging'
+      });
+      toggleConsumable(ingId);
+      setConsumableSearch('');
+    } catch (err) {
+      setModalState({ visible: true, title: 'Error', message: 'Failed to create item.', isError: true });
+    }
+  };
+
+  const handleCreatePackage = useCallback(async () => {
+    if (!initialProductId) return;
+    const n = newPackageName.trim();
+    const pieces = Math.max(1, Math.floor(Number(newPackagePieces) || 0));
+    if (!n) return;
+    if (!Number.isFinite(pieces) || pieces < 1) return;
+    setIsSavingPackage(true);
+    try {
+      await addProductSalePackage({ productId: initialProductId, name: n, piecesPerPackage: pieces });
+      setUnitsPerSale(String(pieces));
+      setSaleUnitLabel(n);
+      setPackageModalVisible(false);
+      setNewPackageName('');
+      setNewPackagePieces('');
+    } finally {
+      setIsSavingPackage(false);
+    }
+  }, [initialProductId, newPackageName, newPackagePieces, addProductSalePackage]);
 
   // Step 1 — Basic Info
   const [name, setName] = useState(existingProduct?.name ?? '');
@@ -69,8 +185,13 @@ export function ProductFormScreen({ route, navigation }: Props) {
 
   // Step 2 — Cost Setup
   const [batchSize, setBatchSize] = useState(String(existingProduct?.batchSize ?? 1));
+  const [unitsPerSale, setUnitsPerSale] = useState(
+    String((existingProduct as any)?.unitsPerSale ?? 1),
+  );
+  const [saleUnitLabel, setSaleUnitLabel] = useState(
+    String((existingProduct as any)?.saleUnitLabel ?? ''),
+  );
   const [baseCost, setBaseCost] = useState(String(existingProduct?.baseCost ?? 0));
-  const [monthlyOverhead, setMonthlyOverhead] = useState(String(existingProduct?.monthlyOverhead ?? 0));
   const [hasVat, setHasVat] = useState(
     existingProduct ? existingProduct.vatPercent > 0 : !!settings.defaultVatEnabled,
   );
@@ -109,6 +230,8 @@ export function ProductFormScreen({ route, navigation }: Props) {
   useEffect(() => {
     void loadProducts();
   }, [loadProducts]);
+
+  // (No product-specific monthly overhead: overhead is handled via cost groups.)
 
   // Sync pricing defaults from Business Profile once settings load (they're async)
   useEffect(() => {
@@ -185,6 +308,12 @@ export function ProductFormScreen({ route, navigation }: Props) {
           return false;
         }
       }
+      const ups = Number(unitsPerSale);
+      if (!Number.isInteger(ups) || ups <= 0) {
+        setModalState({ visible: true, title: 'Invalid Units per Sale', message: 'Units per sale must be a whole number greater than 0.', isError: true });
+        return false;
+      }
+      // Removed mandatory label requirement for packaged units
       return true;
     }
     if (step === 3) {
@@ -211,7 +340,7 @@ export function ProductFormScreen({ route, navigation }: Props) {
     if (step > 1) setStep((s) => s - 1);
   };
 
-  const handleSave = async () => {
+  const performSave = async () => {
     const pricingVal = Number(pricingValue);
     const targetMargin = (pricingMethod === 'margin' || pricingMethod === 'markup')
       ? pricingVal / 100
@@ -222,10 +351,13 @@ export function ProductFormScreen({ route, navigation }: Props) {
       const resolvedDiscountPercent = hasDiscount
         ? Math.min(Math.max(Number(discountPercent) || 0, 0), 99) / 100
         : 0;
+      const bs = Number(batchSize);
       const payload = {
         name: name.trim(),
         category,
-        batchSize: Number(batchSize),
+        batchSize: bs,
+        unitsPerSale: Number(unitsPerSale),
+        saleUnitLabel: saleUnitLabel.trim(),
         baseCost: Number(baseCost),
         targetMargin,
         sellingPrice: existingProduct?.sellingPrice ?? 0,
@@ -233,13 +365,17 @@ export function ProductFormScreen({ route, navigation }: Props) {
         pricingMethod,
         monthlyGoalProfit: existingProduct?.monthlyGoalProfit ?? 0,
         discountPercent: resolvedDiscountPercent,
-        monthlyOverhead: Number(monthlyOverhead) || 0,
+        monthlyOverhead: existingProduct?.monthlyOverhead ?? 0,
+        monthlyOverheadBreakdown: (existingProduct as any)?.monthlyOverheadBreakdown ?? '',
       };
 
-      if (initialProductId) {
-        await editProduct(initialProductId, payload);
+      const existingId = initialProductId || autoCreatedId;
+      let finalProductId = existingId;
+
+      if (existingId) {
+        await editProduct(existingId, payload);
       } else {
-        await addProduct(payload);
+        finalProductId = await addProduct(payload);
       }
       
       if (hasVat !== settings.defaultVatEnabled) {
@@ -255,14 +391,49 @@ export function ProductFormScreen({ route, navigation }: Props) {
           defaultTargetMarginPercent: newMarginPercent,
         }).catch(console.error);
       }
-      
-      navigation.goBack();
-    } catch {
+      return finalProductId;
+    } catch (err) {
+      console.error(err);
       setModalState({ visible: true, title: 'Save Failed', message: 'Unable to save product.', isError: true });
+      return null;
     } finally {
       setIsSaving(false);
     }
   };
+
+  const handleCancel = async () => {
+    if (autoCreatedId) {
+      await removeProduct(autoCreatedId);
+    }
+    navigation.goBack();
+  };
+
+  const handleSave = async () => {
+    const pid = await performSave();
+    if (pid) navigation.goBack();
+  };
+
+  React.useLayoutEffect(() => {
+    navigation.setOptions({
+      headerLeft: () => (
+        <Pressable onPress={() => setShowExitConfirm(true)} style={{ width: 40, height: 40, alignItems: 'center', justifyContent: 'center' }}>
+          <Ionicons name="arrow-back" size={24} color="#166534" />
+        </Pressable>
+      ),
+      headerRight: undefined,
+      headerBackVisible: false,
+      gestureEnabled: false,
+    });
+  }, [navigation, setShowExitConfirm]);
+
+  // Intercept Android hardware back button
+  useEffect(() => {
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      setShowExitConfirm(true);
+      return true; // prevent default back
+    });
+    return () => sub.remove();
+  }, []);
 
   const stepLabels = ['Identity', 'Production', 'Strategy'];
 
@@ -344,7 +515,7 @@ export function ProductFormScreen({ route, navigation }: Props) {
             <FormSection title="Production Parameters" icon="cube">
                 <View className="flex-row gap-4">
                   <View className="flex-1">
-                    <Text className="text-[10px] font-black text-brand-800 uppercase mb-2 tracking-widest">Batch Units</Text>
+                    <Text className="text-[10px] font-black text-brand-800 uppercase mb-2 tracking-widest">Batch output (pieces)</Text>
                     <TextInput
                       value={batchSize}
                       onChangeText={setBatchSize}
@@ -362,22 +533,60 @@ export function ProductFormScreen({ route, navigation }: Props) {
                     />
                   </View>
                 </View>
-                <Text className="text-[10px] text-brand-400 mt-2 italic font-medium px-1">Cost for wholesale or pre-made items.</Text>
-
-                <View className="mt-4">
-                  <Text className="text-[10px] font-black text-brand-800 uppercase mb-1 tracking-widest">Monthly Overhead Cost ({currencyCode})</Text>
-                  <Text className="text-[10px] text-brand-400 italic font-medium px-1 mb-2">Product-specific fixed monthly cost. This will be spread across your batch size for analysis.</Text>
-                  <TextInput
-                    value={monthlyOverhead}
-                    onChangeText={setMonthlyOverhead}
-                    keyboardType="decimal-pad"
-                    className="rounded-[32px] border border-brand-100 bg-brand-50/50 px-5 py-4 text-base text-brand-900 font-bold"
-                    placeholder="0.00"
-                    placeholderTextColor="#adb5bd"
-                  />
-                </View>
-
+                <Text className="text-[10px] text-brand-400 mt-2 italic font-medium px-1">Total smallest units one full recipe run makes (e.g. donuts). Cost for wholesale or pre-made items.</Text>
             </FormSection>
+
+            <FormSection title="Composition & Cost" icon="layers">
+                <Text className="text-[10px] font-black text-brand-800 uppercase tracking-widest px-1 mb-4">Link Ingredients & Packaging to calculate cost</Text>
+                
+                <Pressable
+                  onPress={async () => {
+                    let pid = Number(initialProductId) || autoCreatedId || 0;
+                    if (!pid) {
+                      // First check if at least step 1 (identity) is valid
+                      if (!name.trim()) {
+                        setModalState({ visible: true, title: 'Name Required', message: 'Please provide a product name before linking resources.', isError: true });
+                        return;
+                      }
+                      // Auto-save the product shell first
+                      pid = await performSave() || 0;
+                      if (pid > 0) setAutoCreatedId(pid);
+                    }
+                    
+                    if (pid > 0) {
+                      safeNavigate('ProductAddIngredient', { productId: pid });
+                    }
+                  }}
+                  disabled={isSaving}
+                  className={`bg-brand-900 h-16 rounded-[24px] flex-row items-center justify-center gap-3 shadow-lg ${isSaving ? 'opacity-50' : ''}`}
+                >
+                    <Ionicons name="add-circle" size={20} color="white" />
+                    <Text className="text-[13px] font-black text-white uppercase tracking-widest">
+                      {isSaving ? 'Saving...' : 'Link Resources'}
+                    </Text>
+                </Pressable>
+
+                {existingProductIngredients.length > 0 && (
+                  <View className="mt-6 bg-brand-50/50 rounded-2xl p-4 border border-brand-100">
+                     <View className="flex-row justify-between mb-2">
+                        <Text className="text-[10px] font-black text-brand-400 uppercase tracking-widest">Linked Resources</Text>
+                        <Text className="text-[10px] font-black text-brand-900 uppercase">{existingProductIngredients.length} Items</Text>
+                     </View>
+                     <View className="flex-row flex-wrap gap-2">
+                        {existingProductIngredients.slice(0, 5).map(pi => (
+                          <View key={pi.id} className="bg-white px-3 py-1.5 rounded-full border border-brand-100">
+                             <Text className="text-[10px] font-bold text-brand-700">{pi.ingredientName}</Text>
+                          </View>
+                        ))}
+                        {existingProductIngredients.length > 5 && (
+                          <Text className="text-[10px] font-bold text-brand-400 self-center">+{existingProductIngredients.length - 5} more</Text>
+                        )}
+                     </View>
+                  </View>
+                )}
+            </FormSection>
+
+
 
             <FormSection title="Tax Configuration" icon="receipt">
                 <View className="flex-row items-center justify-between mb-4">
@@ -514,7 +723,7 @@ export function ProductFormScreen({ route, navigation }: Props) {
 
           <View className="flex-row">
             <Pressable
-              onPress={() => navigation.goBack()}
+              onPress={() => setShowExitConfirm(true)}
               className="w-full"
             >
               <View className="h-14 items-center justify-center rounded-[32px] bg-red-50 border border-red-100">
@@ -534,6 +743,63 @@ export function ProductFormScreen({ route, navigation }: Props) {
         onPrimaryAction={() => setModalState(prev => ({ ...prev, visible: false }))}
         isDestructive={!!modalState.isError}
       />
+
+      <ActionModal
+        visible={showExitConfirm}
+        title="Exit Setup?"
+        message={`Exiting without committing will void the entire setup${autoCreatedId ? ' and delete this product' : ''}.`}
+        primaryActionText="Stay"
+        secondaryActionText="Cancel Setup"
+        onPrimaryAction={() => setShowExitConfirm(false)}
+        onSecondaryAction={() => { setShowExitConfirm(false); void handleCancel(); }}
+      />
+
+      {/* Package Creation Modal */}
+      <Modal visible={packageModalVisible} transparent animationType="fade" onRequestClose={() => setPackageModalVisible(false)}>
+        <KeyboardAvoidingView className="flex-1" behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+          <View className="flex-1 bg-black/50 justify-center items-center px-6">
+            <View className="bg-white rounded-[32px] w-full p-6 shadow-xl">
+              <Text className="text-xl font-black text-brand-900 text-center mb-2">Create Package</Text>
+              <Text className="text-[11px] font-medium text-brand-500 text-center mb-6 leading-4 px-2">
+                Save this packaging setup so you can quickly switch to it later.
+              </Text>
+              
+              <Text className="text-[10px] font-black text-brand-600 uppercase mb-2 tracking-widest pl-2">Package Name</Text>
+              <TextInput
+                value={newPackageName}
+                onChangeText={setNewPackageName}
+                placeholder="e.g. Box of 12"
+                placeholderTextColor="#adb5bd"
+                className="rounded-3xl bg-brand-50/50 border border-brand-100 px-5 py-4 text-base font-bold text-brand-900 mb-4"
+              />
+
+              <Text className="text-[10px] font-black text-brand-600 uppercase mb-2 tracking-widest pl-2">Pieces inside</Text>
+              <TextInput
+                value={newPackagePieces}
+                onChangeText={setNewPackagePieces}
+                placeholder="12"
+                keyboardType="number-pad"
+                placeholderTextColor="#adb5bd"
+                className="rounded-3xl bg-brand-50/50 border border-brand-100 px-5 py-4 text-base font-bold text-brand-900 mb-8"
+              />
+
+              <View className="flex-row gap-3">
+                <Pressable className="flex-1" onPress={() => setPackageModalVisible(false)}>
+                  <View className="h-14 items-center justify-center rounded-[24px] bg-slate-100">
+                    <Text className="font-bold text-slate-600 text-xs uppercase tracking-widest">Cancel</Text>
+                  </View>
+                </Pressable>
+                <Pressable className="flex-1" onPress={() => void handleCreatePackage()} disabled={isSavingPackage || !newPackageName.trim() || !newPackagePieces.trim()}>
+                  <View className={`h-14 items-center justify-center rounded-[24px] ${isSavingPackage || !newPackageName.trim() || !newPackagePieces.trim() ? 'bg-brand-400' : 'bg-brand-900'}`}>
+                    <Text className="font-black text-white text-xs uppercase tracking-widest">{isSavingPackage ? 'Saving...' : 'Confirm'}</Text>
+                  </View>
+                </Pressable>
+              </View>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
+
     </View>
   );
 }

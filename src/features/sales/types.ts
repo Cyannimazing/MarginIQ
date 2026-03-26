@@ -10,6 +10,8 @@ export type MonthlySaleInput = {
   unitsUnsold: number;
   actualRevenue: number;
   actualCost: number;
+  ingredientCost: number;
+  overheadCost: number;
   actualProfit: number;
   targetProfit: number;
   shortfall: number;

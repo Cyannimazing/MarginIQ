@@ -1,7 +1,12 @@
 export type RootStackParamList = {
   Onboarding: undefined;
   Dashboard: undefined;
-  IngredientForm: { productId?: number; ingredientId?: number };
+  IngredientForm: { 
+    productId?: number; 
+    ingredientId?: number; 
+    prefillClassification?: 'measurable' | 'fixed';
+    prefillTag?: string;
+  };
   ProductList: undefined;
   ProductForm: { productId?: number } | undefined;
   ProductDetail: { productId: number };
@@ -18,6 +23,10 @@ export type RootStackParamList = {
   Analytics: undefined;
   Reports: undefined;
   Settings: undefined;
-  ResourcesLibrary: undefined;
+  /** Itemized monthly overhead → summed into product or cost group total */
+  MonthlyOverheadBreakdown:
+    | { target: 'product'; productId: number; costGroupId?: undefined }
+    | { target: 'costGroup'; costGroupId: number; productId?: undefined };
+  ResourcesLibrary: { productId?: number } | undefined;
 };
 

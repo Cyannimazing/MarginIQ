@@ -22,3 +22,8 @@ export function reset(name: string, params?: object) {
     });
   }
 }
+export function safeGoBack() {
+  if (navigationRef.isReady() && navigationRef.canGoBack()) {
+    navigationRef.goBack();
+  }
+}

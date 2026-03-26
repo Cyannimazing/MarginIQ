@@ -14,6 +14,7 @@ import { SalesLoggerScreen } from '../screens/SalesLoggerScreen';
 import DashboardScreen from '../screens/DashboardScreen';
 import { AnalyticsScreen } from '../screens/AnalyticsScreen';
 import { SettingsScreen } from '../screens/SettingsScreen';
+import { MonthlyOverheadBreakdownScreen } from '../screens/MonthlyOverheadBreakdownScreen';
 import { ResourcesLibraryScreen } from '../screens/ResourcesLibraryScreen';
 import { useUIStore } from '../stores/uiStore';
 import { RootStackParamList } from './types';
@@ -22,6 +23,7 @@ const Stack = createNativeStackNavigator<RootStackParamList>();
 
 function CustomHeader({ title, back, navigation, options, route }: any) {
   const HeaderRight = options.headerRight;
+  const HeaderLeft = options.headerLeft;
 
   const PRIMARY_SCREENS = ['Dashboard', 'Analytics', 'Settings', 'Reports', 'Trash'];
   const isPrimary = PRIMARY_SCREENS.includes(route.name);
@@ -30,7 +32,9 @@ function CustomHeader({ title, back, navigation, options, route }: any) {
     <SafeAreaView edges={['top']} className="bg-white border-b border-slate-100">
       <View className="px-6 h-14 flex-row items-center justify-center relative">
         <View className="absolute left-6 z-10">
-          {!isPrimary && back ? (
+          {HeaderLeft ? (
+            <HeaderLeft canGoBack={!!back} />
+          ) : !isPrimary && back ? (
             <Pressable
               onPress={() => navigation.goBack()}
               className="h-10 w-10 items-center justify-center"
@@ -72,6 +76,7 @@ export function RootNavigator({ onboardingCompleted }: RootNavigatorProps) {
       initialRouteName={onboardingCompleted ? 'Dashboard' : 'Onboarding'}
       screenOptions={{
         animation: 'fade',
+        freezeOnBlur: true,
         header: ({ navigation, route, options, back }) => (
           <CustomHeader title={options.title !== undefined ? options.title : route.name} back={back} navigation={navigation} options={options} route={route} />
         )
@@ -99,6 +104,11 @@ export function RootNavigator({ onboardingCompleted }: RootNavigatorProps) {
         name="Settings"
         component={SettingsScreen}
         options={{ title: 'Business Profile' }}
+      />
+      <Stack.Screen
+        name="MonthlyOverheadBreakdown"
+        component={MonthlyOverheadBreakdownScreen}
+        options={{ title: 'Monthly overhead' }}
       />
       <Stack.Screen
         name="ResourcesLibrary"
@@ -132,6 +142,7 @@ export function RootNavigator({ onboardingCompleted }: RootNavigatorProps) {
         component={IngredientFormScreen}
         options={({ route }) => ({
           title: route.params?.ingredientId ? 'Edit Resource' : 'Setup Resource',
+          animation: 'none',
         })}
       />
       <Stack.Screen

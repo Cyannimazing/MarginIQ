@@ -1,7 +1,6 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useCallback, useEffect } from 'react';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import {
-  Alert,
   ActivityIndicator,
   Modal,
   Pressable,
@@ -18,6 +17,8 @@ import { useSalesStore } from '../stores/salesStore';
 import { useSettingsStore } from '../stores/settingsStore';
 import { formatMoney, getCurrencySymbol } from '../utils/currency';
 import { getCurrentMonth, getDailyPeriod } from '../utils/month';
+import { normalizeUnitsPerSale, perSaleCost, saleUnitDisplayName, salesPerBatch } from '../utils/productEconomics';
+import { OptionChip } from '../components/ui/OptionChip';
 
 import { ActionModal } from '../components/ui/ActionModal';
 
@@ -37,6 +38,8 @@ export function ProductDetailScreen({ route, navigation }: Props) {
   const deleteProduct = useProductStore((state) => state.trashProduct);
   const getProductIngredients = useProductStore((state) => state.getProductIngredients);
   const loadProductIngredients = useProductStore((state) => state.loadProductIngredients);
+  const getProductSalePackages = useProductStore((state) => state.getProductSalePackages);
+  const loadProductSalePackages = useProductStore((state) => state.loadProductSalePackages);
   const isLoadingCategories = useProductStore((state) => state.isLoading);
   const editProduct = useProductStore((state) => state.editProduct);
   const settings = useSettingsStore((state) => state.settings);
@@ -44,10 +47,16 @@ export function ProductDetailScreen({ route, navigation }: Props) {
 
   const product = products.find((p) => Number(p.id) === Number(productId));
   const productIngredients = getProductIngredients(productId);
+  const productSalePackages = getProductSalePackages(productId);
 
   React.useEffect(() => {
     void loadProductIngredients(Number(productId));
   }, [productId, loadProductIngredients]);
+
+  // Ensure "package" labels are available for analysis display.
+  React.useEffect(() => {
+    void loadProductSalePackages(Number(productId));
+  }, [productId, loadProductSalePackages]);
 
   // Derive records
   const currentMonthStr = getCurrentMonth();
@@ -86,8 +95,6 @@ export function ProductDetailScreen({ route, navigation }: Props) {
   const [priceInput, setPriceInput] = useState('0');
   const [isSavingPrice, setIsSavingPrice] = useState(false);
 
-
-
   const handleSaveGoal = async () => {
     if (!product) return;
     const val = Number(goalInput) || 0;
@@ -106,7 +113,6 @@ export function ProductDetailScreen({ route, navigation }: Props) {
       setIsSavingGoal(false);
     }
   };
-
 
 
   const handleDelete = () => {
@@ -144,6 +150,8 @@ export function ProductDetailScreen({ route, navigation }: Props) {
     perPieceIngredients,
     perPieceOther,
     perPieceTotalCost,
+    perSaleTotalCost,
+    unitsPerSale,
     sellingPrice,
     suggestedSellingPrice,
     priceBeforeVat,
@@ -178,20 +186,31 @@ export function ProductDetailScreen({ route, navigation }: Props) {
     const bTotalCost = iTotal + oTotal;
     const bSize = Math.max(Number(product?.batchSize || 1), 0.00000001);
     const pPieceTotalCost = isFinite(bTotalCost / bSize) ? bTotalCost / bSize : 0;
+    
+    // Use the user-configured "sale package" (unitsPerSale + saleUnitLabel) regardless of whether
+    // any packaging cost lines are linked in the recipe.
+    // Packaging cost lines can legitimately be 0, but sale units should still reflect the package.
+    const rawUps = isFinite(Number((product as any)?.unitsPerSale))
+      ? Number((product as any)?.unitsPerSale)
+      : 1;
+    const uPerSale = normalizeUnitsPerSale(rawUps, bSize);
+    
+    const batchSalesCount = salesPerBatch(bSize, uPerSale);
+    const perSaleTotalCost = perSaleCost(pPieceTotalCost, uPerSale);
 
     let sPrice = isFinite(Number(product?.sellingPrice)) ? Number(product?.sellingPrice) : 0;
     const targetMarginVal = isFinite(Number(product?.targetMargin)) ? Number(product?.targetMargin) : 0;
     const vPercent = isFinite(Number(product?.vatPercent)) ? Number(product?.vatPercent) : 0;
 
-    let suggestedPreVat = pPieceTotalCost;
+    let suggestedPreVat = perSaleTotalCost;
     if (product?.pricingMethod === 'markup') {
-      suggestedPreVat = pPieceTotalCost * (1 + targetMarginVal);
+      suggestedPreVat = perSaleTotalCost * (1 + targetMarginVal);
     } else if (product?.pricingMethod === 'fixed') {
-      const profitPerUnit = targetMarginVal / bSize;
-      suggestedPreVat = pPieceTotalCost + profitPerUnit;
+      const profitPerSaleFromFixed = targetMarginVal / batchSalesCount;
+      suggestedPreVat = perSaleTotalCost + profitPerSaleFromFixed;
     } else {
       const denom = (1 - targetMarginVal);
-      suggestedPreVat = (denom > 0 && denom < 1) ? (pPieceTotalCost / denom) : (pPieceTotalCost * 1.5);
+      suggestedPreVat = (denom > 0 && denom < 1) ? (perSaleTotalCost / denom) : (perSaleTotalCost * 1.5);
     }
 
     const suggestedSellingPrice = suggestedPreVat * (1 + vPercent);
@@ -204,24 +223,26 @@ export function ProductDetailScreen({ route, navigation }: Props) {
 
     const pBeforeVat = isFinite(sPrice / (1 + vPercent)) ? sPrice / (1 + vPercent) : sPrice;
     const vAmount = sPrice - pBeforeVat;
-    const pPerPiece = sPrice - pPieceTotalCost;
+    const profitPerSaleUnit = pBeforeVat - perSaleTotalCost;
 
     const roundedSPrice = Math.round(sPrice * 100) / 100;
-    const roundedCost = Math.round(pPieceTotalCost * 100) / 100;
-    const roundedProfit = roundedSPrice - roundedCost;
+    const roundedNetPrice = Math.round(pBeforeVat * 100) / 100;
+    const roundedCost = Math.round(perSaleTotalCost * 100) / 100;
+    const roundedProfit = roundedNetPrice - roundedCost;
 
-    const pMarginPercent = (isFinite(roundedSPrice) && roundedSPrice > 0) ? (roundedProfit / roundedSPrice) * 100 : 0;
+    const pMarginPercent = (isFinite(roundedNetPrice) && roundedNetPrice > 0) ? (roundedProfit / roundedNetPrice) * 100 : 0;
     const pMarkupPercent = (isFinite(roundedCost) && roundedCost > 0) ? (roundedProfit / roundedCost) * 100 : 0;
 
     let profitValid = false;
-    if (product?.pricingMethod === 'fixed') profitValid = Math.round(pPerPiece * bSize * 100) / 100 >= targetMarginVal;
-    else if (product?.pricingMethod === 'markup') profitValid = pMarkupPercent >= targetMarginVal * 100;
+    if (product?.pricingMethod === 'fixed') {
+      profitValid = Math.round(profitPerSaleUnit * batchSalesCount * 100) / 100 >= targetMarginVal;
+    } else if (product?.pricingMethod === 'markup') profitValid = pMarkupPercent >= targetMarginVal * 100;
     else profitValid = pMarginPercent >= targetMarginVal * 100;
 
     const discPct = isFinite(Number(product?.discountPercent)) ? Number(product?.discountPercent) : 0.20;
     const dPrice = sPrice * (1 - discPct);
     const preVatDP = dPrice / (1 + vPercent);
-    const pIfDiscounted = dPrice - pPieceTotalCost;
+    const pIfDiscounted = dPrice - perSaleTotalCost;
     const mIfDiscounted = dPrice > 0 ? (pIfDiscounted / dPrice) * 100 : 0;
 
     const catTotals = {
@@ -247,10 +268,12 @@ export function ProductDetailScreen({ route, navigation }: Props) {
       perPieceIngredients: (iTotal / bSize) || 0,
       perPieceOther: (oTotal / bSize) || 0,
       perPieceTotalCost: pPieceTotalCost || 0,
+      perSaleTotalCost: perSaleTotalCost || 0,
+      unitsPerSale: uPerSale,
       sellingPrice: isFinite(sPrice) ? sPrice : 0,
       priceBeforeVat: isFinite(pBeforeVat) ? pBeforeVat : 0,
       vatAmount: isFinite(vAmount) ? vAmount : 0,
-      profitPerPiece: isFinite(pPerPiece) ? pPerPiece : 0,
+      profitPerPiece: isFinite(profitPerSaleUnit) ? profitPerSaleUnit : 0,
       profitMarginPercent: isFinite(pMarginPercent) ? pMarginPercent : 0,
       priceMarkupPercent: isFinite(pMarkupPercent) ? pMarkupPercent : 0,
       isProfitValid: profitValid,
@@ -262,7 +285,7 @@ export function ProductDetailScreen({ route, navigation }: Props) {
       categoryTotals: catTotals,
       suggestedSellingPrice: isFinite(suggestedSellingPrice) ? suggestedSellingPrice : 0,
     };
-  }, [product, productIngredients, goalRecord]);
+  }, [product, productIngredients, goalRecord, productSalePackages]);
 
   // Early returns — after ALL hooks and memos to satisfy Rules of Hooks
   if (!product) {
@@ -313,8 +336,20 @@ export function ProductDetailScreen({ route, navigation }: Props) {
     .filter(s => Number(s.productId) === productId && s.month === todayStr)
     .reduce((sum, s) => sum + (Number(s.unitsSold) || 0) + (Number(s.unitsSoldDiscounted) || 0), 0);
 
+  // Overhead totals needed for accurate goal-unit calculation (must come before totalUnitsForGoal)
+  const directMonthlyOverheadForGoal = isFinite(Number(product.monthlyOverhead)) ? Number(product.monthlyOverhead) : 0;
+  const costGroupIdForGoal = (product as any)?.costGroupId ?? null;
+  const linkedCostGroupForGoal = costGroups.find(g => g.id === costGroupIdForGoal) ?? null;
+  const sharedGroupCostForGoal = linkedCostGroupForGoal ? Math.max(Number((linkedCostGroupForGoal as any).monthlySharedCost) || 0, 0) : 0;
+  const peersForGoal = costGroupIdForGoal ? products.filter((p) => Number(p.costGroupId) === Number(costGroupIdForGoal)).length : 0;
+  const groupShareForGoal = sharedGroupCostForGoal > 0 && peersForGoal > 0 ? sharedGroupCostForGoal / peersForGoal : 0;
+  const totalMonthlyOverheadForGoal = directMonthlyOverheadForGoal + groupShareForGoal;
+
   // Rolling daily target: calculated from units sold BEFORE today so it stays fixed all day
-  const totalUnitsForGoal = profitPerPiece > 0 ? Math.ceil(product.monthlyGoalProfit / profitPerPiece) : 0;
+  // Uses (goal + overhead) / profitPerPiece so goal units match what the sales logger actually saves (net profit)
+  const totalUnitsForGoal = profitPerPiece > 0
+    ? Math.ceil((product.monthlyGoalProfit + totalMonthlyOverheadForGoal) / profitPerPiece)
+    : 0;
   const unitsSoldBeforeToday = Math.max(0, goalRecord.unitsSoldSoFar - unitsSoldToday);
   const unitsRemainingAtDayStart = Math.max(0, totalUnitsForGoal - unitsSoldBeforeToday);
   const dailyItemsNeeded = unitsRemainingAtDayStart > 0 ? Math.ceil(unitsRemainingAtDayStart / daysRemaining) : 0;
@@ -332,9 +367,25 @@ export function ProductDetailScreen({ route, navigation }: Props) {
   const targetMargin = isFinite(Number(product.targetMargin)) ? Number(product.targetMargin) : 0;
   const vatPercent = isFinite(Number(product.vatPercent)) ? Number(product.vatPercent) : 0;
   const batchSize = Math.max(Number(product.batchSize || 1), 1);
+  const configuredSaleUnitLabel = String((product as any)?.saleUnitLabel ?? '').trim();
+  const matchedPackage = productSalePackages.find(
+    (pkg) => Math.floor(Number(pkg.piecesPerPackage) || 1) === Math.floor(Number(unitsPerSale) || 1)
+  );
+  const saleLabel =
+    configuredSaleUnitLabel ||
+    (matchedPackage?.name?.trim() ? matchedPackage.name.trim() : saleUnitDisplayName(configuredSaleUnitLabel, unitsPerSale));
+  const salesPerBatchCount = salesPerBatch(batchSize, unitsPerSale);
 
   const linkedCostGroup = costGroups.find(g => g.id === (product as any).costGroupId) ?? null;
   const sharedGroupMonthlyCost = linkedCostGroup ? Math.max(Number((linkedCostGroup as any).monthlySharedCost) || 0, 0) : 0;
+  const costGroupId = (product as any)?.costGroupId ?? null;
+  const peersInCostGroup = costGroupId
+    ? products.filter((p) => Number(p.costGroupId) === Number(costGroupId)).length
+    : 0;
+  const groupOverheadShare =
+    sharedGroupMonthlyCost > 0 && peersInCostGroup > 0
+      ? sharedGroupMonthlyCost / peersInCostGroup
+      : 0;
 
   const targetLabel = product.pricingMethod === 'markup' ? 'Target markup'
     : product.pricingMethod === 'fixed' ? 'Target profit (batch)'
@@ -348,24 +399,25 @@ export function ProductDetailScreen({ route, navigation }: Props) {
   const discountPctDisplay = Math.round(discountPercent * 100);
 
   // Feature 2 — Batches per Month
-  const batchesPerMonth = (totalUnitsForGoal > 0 && batchSize > 0)
-    ? Math.ceil(totalUnitsForGoal / batchSize)
+  const batchesPerMonth = (totalUnitsForGoal > 0 && salesPerBatchCount > 0)
+    ? Math.ceil(totalUnitsForGoal / salesPerBatchCount)
     : 0;
 
-  // Feature 3 — Break-Even
-  const breakEvenUnitsPerBatch = sellingPrice > 0
+  // Feature 3 — Break-Even (sales at list price to cover one batch’s direct cost)
+  const breakEvenSalesApprox = sellingPrice > 0
     ? Math.ceil(batchTotalCost / sellingPrice)
-    : batchSize;
-  const breakEvenPct = batchSize > 0
-    ? Math.round((breakEvenUnitsPerBatch / batchSize) * 100)
+    : 0;
+  const breakEvenPct = salesPerBatchCount > 0
+    ? Math.round((breakEvenSalesApprox / salesPerBatchCount) * 100)
     : 0;
 
-  // Feature 4 — Monthly Overhead Impact
-  const monthlyOverhead = isFinite(Number(product.monthlyOverhead)) ? Number(product.monthlyOverhead) : 0;
-  const overheadPerUnit = (monthlyOverhead > 0 && totalUnitsForGoal > 0)
-    ? monthlyOverhead / totalUnitsForGoal
+  // Feature 4 — Monthly Overhead Impact (shared cost group only)
+  const directMonthlyOverhead = directMonthlyOverheadForGoal;
+  const totalMonthlyOverheadAttributed = groupOverheadShare + directMonthlyOverhead;
+  const overheadPerUnit = totalMonthlyOverheadForGoal > 0 && totalUnitsForGoal > 0
+    ? totalMonthlyOverheadForGoal / totalUnitsForGoal
     : 0;
-  const adjustedUnitCost = perPieceTotalCost + overheadPerUnit;
+  const adjustedUnitCost = perSaleTotalCost + overheadPerUnit;
   const adjustedProfitPerUnit = sellingPrice - adjustedUnitCost;
   const adjustedMargin = sellingPrice > 0 ? (adjustedProfitPerUnit / sellingPrice) * 100 : 0;
 
@@ -402,7 +454,11 @@ export function ProductDetailScreen({ route, navigation }: Props) {
           {/* ── Financial Scorecard ── */}
           <View className="mb-4 rounded-[28px] bg-brand-900 p-6 shadow-lg overflow-hidden">
             <Text className="text-[8px] font-black text-brand-500 uppercase tracking-[3px] mb-3">Selling Price · Inc. VAT</Text>
-            
+            {unitsPerSale > 1 && (
+              <Text className="text-[10px] font-bold text-brand-400 mb-2 -mt-1 uppercase tracking-widest">
+                Per {saleLabel} ({unitsPerSale} pcs)
+              </Text>
+            )}
                <View className="flex-row items-center justify-between gap-3 mb-2">
                  <Text className="text-5xl font-black text-white tracking-tighter shrink leading-none">{formatMoney(sellingPrice, currencyCode)}</Text>
                  <Pressable onPress={() => { setPriceInput(String(sellingPrice)); setIsEditingPrice(true); }}>
@@ -444,8 +500,10 @@ export function ProductDetailScreen({ route, navigation }: Props) {
                 <Text className="text-[13px] font-black text-brand-200">{formatMoney(vatAmount, currencyCode)}</Text>
               </View>
               <View className="flex-1 bg-brand-800/40 p-3 rounded-xl">
-                <Text className="text-[8px] font-bold text-brand-500 uppercase tracking-widest mb-1">Unit Cost</Text>
-                <Text className="text-[13px] font-black text-brand-200">{formatMoney(perPieceTotalCost, currencyCode)}</Text>
+                <Text className="text-[8px] font-bold text-brand-500 uppercase tracking-widest mb-1">
+                  {unitsPerSale > 1 ? `Cost / ${saleLabel}` : 'Unit Cost'}
+                </Text>
+                <Text className="text-[13px] font-black text-brand-200">{formatMoney(perSaleTotalCost, currencyCode)}</Text>
               </View>
             </View>
           </View>
@@ -503,14 +561,18 @@ export function ProductDetailScreen({ route, navigation }: Props) {
                           <Text className="text-[13px] font-black text-brand-500">
                             {dailyItemsNeeded}
                           </Text>
-                          <Text className="text-[10px] font-bold text-brand-400 uppercase tracking-tighter">units/day</Text>
+                          <Text className="text-[10px] font-bold text-brand-400 uppercase tracking-tighter">
+                            {unitsPerSale > 1 ? `${saleLabel}/day` : 'units/day'}
+                          </Text>
                         </View>
                       )}
                     </View>
                     {!isGoalComplete && (
                       <View className="items-end">
                         <Text className="text-[9px] font-black text-brand-400 uppercase tracking-widest mb-1">{daysRemaining} day{daysRemaining !== 1 ? 's' : ''} left</Text>
-                        <Text className="text-xs font-black text-brand-900">{unitsRemaining} unit{unitsRemaining !== 1 ? 's' : ''} to go</Text>
+                        <Text className="text-xs font-black text-brand-900">
+                          {unitsRemaining} {unitsPerSale > 1 ? `${saleLabel}${unitsRemaining !== 1 ? 's' : ''}` : `unit${unitsRemaining !== 1 ? 's' : ''}`} to go
+                        </Text>
                       </View>
                     )}
                   </View>
@@ -536,26 +598,38 @@ export function ProductDetailScreen({ route, navigation }: Props) {
                         </View>
                       </View>
                       <View className="items-end">
-                        <Text className="text-[9px] font-black text-brand-400 uppercase tracking-widest mb-1">Total Units</Text>
-                        <Text className="text-xs font-black text-brand-900">{totalUnitsForGoal} pcs</Text>
+                        <Text className="text-[9px] font-black text-brand-400 uppercase tracking-widest mb-1">
+                          {unitsPerSale > 1 ? 'Total sales (goal)' : 'Total units'}
+                        </Text>
+                        <Text className="text-xs font-black text-brand-900">
+                          {unitsPerSale > 1
+                            ? `${totalUnitsForGoal} ${saleLabel}${totalUnitsForGoal !== 1 ? 's' : ''}`
+                            : `${totalUnitsForGoal} pcs`}
+                        </Text>
                       </View>
                     </View>
                   )}
 
                   <View className="mt-6 pt-4 border-t border-brand-50">
-                    <Text className="text-[8px] font-black text-brand-400 uppercase tracking-[3px] mb-4">Break-Even Analysis</Text>
+                    <Text className="text-[8px] font-black text-brand-400 uppercase tracking-[3px] mb-4">Min Sale Analysis</Text>
                     
                     <View className="flex-row items-center justify-between rounded-2xl bg-brand-50/50 border border-brand-100 p-3">
                       <View>
-                        <Text className="text-[9px] font-black text-brand-400 uppercase tracking-[2px] mb-1">Min Units to Sell</Text>
+                        <Text className="text-[9px] font-black text-brand-400 uppercase tracking-[2px] mb-1">
+                          Min Sale
+                        </Text>
                         <View className="flex-row items-baseline gap-1">
-                          <Text className="text-[15px] font-black text-brand-900">{breakEvenUnitsPerBatch}</Text>
-                          <Text className="text-[9px] font-bold text-brand-400 uppercase tracking-tighter">units</Text>
+                          <Text className="text-[15px] font-black text-brand-900">{breakEvenSalesApprox}</Text>
+                          <Text className="text-[9px] font-bold text-brand-400 uppercase tracking-tighter">
+                            {unitsPerSale > 1 ? saleLabel : 'units'}
+                          </Text>
                         </View>
                       </View>
                       <View className="items-end">
-                        <Text className="text-[9px] font-black text-brand-400 uppercase tracking-widest mb-1">Per Batch</Text>
-                        <Text className="text-xs font-black text-brand-900">of {batchSize} pcs</Text>
+                        <Text className="text-[9px] font-black text-brand-400 uppercase tracking-widest mb-1">Per batch</Text>
+                        <Text className="text-xs font-black text-brand-900">
+                          {salesPerBatchCount} {unitsPerSale > 1 ? `${saleLabel}${salesPerBatchCount !== 1 ? 's' : ''}` : `${batchSize} pcs`}
+                        </Text>
                       </View>
                     </View>
 
@@ -609,30 +683,50 @@ export function ProductDetailScreen({ route, navigation }: Props) {
           <View className="mb-4 rounded-[24px] bg-white border border-brand-100 overflow-hidden shadow-sm">
             <View className="px-5 pt-5 pb-5">
               <Text className="text-[8px] font-black text-brand-400 uppercase tracking-[3px] mb-4">Setup Configuration</Text>
-              <SummaryRow label="Batch production qty" value={`${batchSize} pcs`} />
+              
+              <SummaryRow label="Batch output" value={`${batchSize} pcs`} />
+
               <View className="h-px bg-brand-50 my-2.5" />
-              <SummaryRow label={targetLabel} value={targetValueFormatted} />
+              
+              <SummaryRow 
+                label="Units per packaging" 
+                value={unitsPerSale > 1 ? `${unitsPerSale} pcs → 1 ${saleLabel}` : `${unitsPerSale} pc`} 
+              />
+
               <View className="h-px bg-brand-50 my-2.5" />
+
+              <SummaryRow label="Sellable units" value={`${salesPerBatchCount} ${saleLabel}${salesPerBatchCount !== 1 ? 's' : ''} (auto)`} />
+              
+              <View className="h-px bg-brand-50 my-2.5" />
+
               {vatPercent > 0 && (
                 <>
-                  <SummaryRow label="VAT rate" value={`${(vatPercent * 100).toFixed(0)}%`} />
+                  <SummaryRow label="VAT Rate" value={`${(vatPercent * 100).toFixed(0)}%`} />
                   <View className="h-px bg-brand-50 my-2.5" />
                 </>
               )}
-              {discountPercent > 0 && (
+
+              <SummaryRow label={targetLabel} value={targetValueFormatted} />
+              
+              {linkedCostGroup && sharedGroupMonthlyCost > 0 && (
                 <>
-                  <SummaryRow label="Discount rate" value={`${discountPctDisplay}%`} />
                   <View className="h-px bg-brand-50 my-2.5" />
+                  <SummaryRow
+                    label="Group monthly overhead (total)"
+                    value={formatMoney(sharedGroupMonthlyCost, currencyCode)}
+                  />
+                  {peersInCostGroup > 1 && (
+                    <SummaryRow
+                      label={`Your share (${peersInCostGroup} products)`}
+                      value={formatMoney(groupOverheadShare, currencyCode)}
+                    />
+                  )}
                 </>
-              )}
-              {(sharedGroupMonthlyCost > 0 || monthlyOverhead > 0) && (
-                <SummaryRow 
-                  label={linkedCostGroup ? 'Group monthly overhead' : 'Monthly overhead'} 
-                  value={formatMoney(linkedCostGroup ? sharedGroupMonthlyCost : monthlyOverhead, currencyCode)} 
-                />
               )}
             </View>
           </View>
+
+
 
           {/* ── Composition Groups ── */}
           {categoryTotals && ['ingredients', 'material', 'packaging', 'labor', 'utilities', 'overhead', 'other'].map((catType) => {
@@ -642,14 +736,18 @@ export function ProductDetailScreen({ route, navigation }: Props) {
               <View key={catType} className="mb-4 rounded-[24px] bg-white border border-brand-100 overflow-hidden shadow-sm">
                 <View className="px-5 pt-5 pb-5">
                   <View className="flex-row items-center justify-between mb-1">
-                    <Text className="text-[8px] font-black text-brand-400 uppercase tracking-[3px]">{catType}</Text>
+                    <Text className="text-[8px] font-black text-brand-400 uppercase tracking-[3px]">
+                      {catType === 'ingredients' ? 'Raw Materials' : catType}
+                    </Text>
                     <Text className="text-[10px] font-semibold text-brand-300">{groupItems.length} item{groupItems.length !== 1 ? 's' : ''}</Text>
                   </View>
                   <View className="mt-2">
                     {groupItems.map((pi) => renderCompositionRow(pi, `${pi.id}`))}
                   </View>
                   <View className="mt-4 pt-1 flex-row items-center justify-between">
-                    <Text className="text-[10px] font-black text-brand-400 uppercase tracking-widest">{catType} subtotal</Text>
+                    <Text className="text-[10px] font-black text-brand-400 uppercase tracking-widest">
+                      {catType === 'ingredients' ? 'Raw Materials' : catType} subtotal
+                    </Text>
                     <Text className="text-base font-black text-brand-900">{formatMoney(categoryTotals?.[catType] || 0, currencyCode)}</Text>
                   </View>
                 </View>
@@ -690,17 +788,20 @@ export function ProductDetailScreen({ route, navigation }: Props) {
 
             <View className="flex-1 rounded-[24px] bg-white border border-brand-100 overflow-hidden shadow-sm">
               <View className="bg-brand-900 px-4 py-3">
-                <Text className="text-[8px] font-black text-white uppercase tracking-[2px] text-center">Per Piece</Text>
+                <Text className="text-[8px] font-black text-white uppercase tracking-[2px] text-center">
+                  {unitsPerSale > 1 ? `Per ${saleLabel}` : 'Per piece'}
+                </Text>
               </View>
               <View className="p-4 gap-2">
                 {Object.entries(categoryTotals || {}).map(([cat, val]) => {
                   if (val <= 0) return null;
+                  const perSale = (val / batchSize) * unitsPerSale;
                   return (
-                    <SummaryRow key={cat} label={cat.charAt(0).toUpperCase() + cat.slice(1)} value={formatMoney(val / batchSize, currencyCode)} />
+                    <SummaryRow key={cat} label={cat.charAt(0).toUpperCase() + cat.slice(1)} value={formatMoney(perSale, currencyCode)} />
                   );
                 })}
                 <View className="h-px bg-brand-50 my-1" />
-                <SummaryRow label="Total" value={formatMoney(perPieceTotalCost, currencyCode)} isStrong />
+                <SummaryRow label="Total" value={formatMoney(perSaleTotalCost, currencyCode)} isStrong />
               </View>
             </View>
           </View>
@@ -729,23 +830,47 @@ export function ProductDetailScreen({ route, navigation }: Props) {
           )}
 
           {/* ── Monthly Overhead Impact ── */}
-          {monthlyOverhead > 0 && (
+          {totalMonthlyOverheadAttributed === 0 && (
+            <View className="mb-4 flex-row items-center gap-2 px-4 py-3 rounded-2xl border border-amber-200 bg-amber-50">
+              <Ionicons name="alert-circle-outline" size={14} color="#d97706" />
+              <Text className="text-[10px] font-black text-amber-700 uppercase tracking-widest flex-1">
+                {costGroupId
+                  ? 'No group overhead set — configure from the Dashboard'
+                  : 'No overhead set — configure from the Dashboard'}
+              </Text>
+            </View>
+          )}
+          {totalMonthlyOverheadAttributed > 0 && (
             <View className="mb-4 rounded-[24px] bg-white border border-blue-100 overflow-hidden shadow-sm">
               <View className="bg-blue-600 px-5 py-3">
                 <Text className="text-[8px] font-black text-blue-100 uppercase tracking-[3px]">Monthly Overhead Impact</Text>
               </View>
               <View className="p-5 gap-2">
-                <SummaryRow label="Monthly overhead budget" value={formatMoney(monthlyOverhead, currencyCode)} />
-                <SummaryRow label={`Spread over ${totalUnitsForGoal} units`} value={`${formatMoney(overheadPerUnit, currencyCode)} / unit`} />
+                {groupOverheadShare > 0 && (
+                  <SummaryRow
+                    label={
+                      peersInCostGroup > 1
+                        ? `Shared overhead — your share (${peersInCostGroup} products)`
+                        : 'Shared overhead (cost group)'
+                    }
+                    value={formatMoney(groupOverheadShare, currencyCode)}
+                  />
+                )}
                 <View className="h-px bg-brand-50 my-1" />
-                <SummaryRow label="Adjusted unit cost (incl. overhead)" value={formatMoney(adjustedUnitCost, currencyCode)} />
+                <SummaryRow label="Total attributed monthly overhead" value={formatMoney(totalMonthlyOverheadAttributed, currencyCode)} isStrong />
                 <SummaryRow
-                  label="Adjusted profit / unit"
+                  label={`Spread over ${totalUnitsForGoal} ${unitsPerSale > 1 ? `${saleLabel}${totalUnitsForGoal !== 1 ? 's' : ''}` : 'units'}`}
+                  value={`${formatMoney(overheadPerUnit, currencyCode)} / ${unitsPerSale > 1 ? saleLabel : 'unit'}`}
+                />
+                <View className="h-px bg-brand-50 my-1" />
+                <SummaryRow label="Final unit cost (incl. overhead)" value={formatMoney(adjustedUnitCost, currencyCode)} />
+                <SummaryRow
+                  label="Final profit / unit"
                   value={formatMoney(adjustedProfitPerUnit, currencyCode)}
                   color={adjustedProfitPerUnit > 0 ? 'text-emerald-700 font-black text-sm' : 'text-red-500 font-black text-sm'}
                 />
                 <SummaryRow
-                  label="Adjusted margin"
+                  label="Final margin"
                   value={`${adjustedMargin.toFixed(1)}%`}
                   color={adjustedMargin > 0 ? 'text-emerald-700 font-black text-sm' : 'text-red-500 font-black text-sm'}
                 />
@@ -755,6 +880,8 @@ export function ProductDetailScreen({ route, navigation }: Props) {
 
         </View>
       </ScrollView>
+
+
 
       <Modal visible={isEditingPrice} transparent animationType="fade">
         <View className="flex-1 justify-center items-center px-6" style={{ backgroundColor: 'rgba(0,0,0,0.6)' }}>

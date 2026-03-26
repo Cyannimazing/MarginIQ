@@ -121,11 +121,28 @@ ensureColumn('products', 'discount_percent', 'REAL', '0.20');
 ensureColumn('products', 'monthly_overhead', 'REAL', '0');
 ensureColumn('products', 'monthly_production_qty', 'REAL', '0');
 ensureColumn('products', 'cost_group_id', 'INTEGER', 'NULL');
+ensureColumn('products', 'units_per_sale', 'INTEGER', '1');
+ensureColumn('products', 'sale_unit_label', 'TEXT', "''");
+ensureColumn('products', 'monthly_overhead_breakdown', 'TEXT', "''");
 
 // Add Missing Columns safely to Product Cost Groups
 ensureColumn('product_cost_groups', 'monthly_shared_cost', 'REAL', '0');
+ensureColumn('product_cost_groups', 'monthly_shared_cost_breakdown', 'TEXT', "''");
 ensureColumn('product_cost_groups', 'created_at', 'TEXT', "''");
 ensureColumn('product_cost_groups', 'updated_at', 'TEXT', "''");
+
+// Add Missing Columns safely to Product Sale Packages
+runMigrationStatement(`
+  CREATE TABLE IF NOT EXISTS product_sale_packages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+    product_id INTEGER NOT NULL,
+    name TEXT NOT NULL,
+    pieces_per_package INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL DEFAULT '',
+    updated_at TEXT NOT NULL DEFAULT ''
+  );
+`);
+runMigrationStatement(`CREATE INDEX IF NOT EXISTS idx_product_sale_packages_product_id ON product_sale_packages (product_id);`);
 
 // Ensure other tables
 runMigrationStatement(`
@@ -134,10 +151,14 @@ runMigrationStatement(`
     product_id INTEGER NOT NULL,
     ingredient_id INTEGER NOT NULL,
     quantity_used REAL NOT NULL,
+    usage_mode TEXT NOT NULL DEFAULT 'per_batch',
+    usage_ratio REAL NOT NULL DEFAULT 0,
     cost_type TEXT NOT NULL DEFAULT 'material'
   );
 `);
 ensureColumn('product_ingredients', 'cost_type', 'TEXT', "'material'");
+ensureColumn('product_ingredients', 'usage_mode', 'TEXT', "'per_batch'");
+ensureColumn('product_ingredients', 'usage_ratio', 'REAL', '0');
 
 runMigrationStatement(`
   CREATE TABLE IF NOT EXISTS employees (
@@ -174,6 +195,8 @@ runMigrationStatement(`
     recorded_at TEXT NOT NULL
   );
 `);
+ensureColumn('monthly_sales', 'ingredient_cost', 'REAL', '0');
+ensureColumn('monthly_sales', 'overhead_cost', 'REAL', '0');
 ensureColumn('monthly_sales', 'units_sold_discounted', 'INTEGER', '0');
 ensureColumn('monthly_sales', 'units_unsold', 'INTEGER', '0');
 ensureColumn('monthly_sales', 'actual_profit', 'REAL', '0');

@@ -22,9 +22,10 @@ export function ActionModal({
   onSecondaryAction,
   isDestructive = false,
 }: ActionModalProps) {
+  if (!visible) return null;
   return (
     <Modal
-      visible={visible}
+      visible={true}
       transparent
       animationType="fade"
       onRequestClose={onSecondaryAction || onPrimaryAction}

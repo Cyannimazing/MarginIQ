@@ -2,19 +2,18 @@ import React from 'react';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { Controller, useForm } from 'react-hook-form';
-import { Alert, Pressable, ScrollView, Text, TextInput, View, KeyboardAvoidingView, Platform } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Alert, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { z } from 'zod';
 import { INGREDIENT_UNITS } from '../constants/units';
-import { RESOURCE_TAGS } from '../constants/productCategories';
+
 import {
   IngredientInput,
   IngredientUnit,
 } from '../features/ingredients/types';
+import { RESOURCE_TAGS, ResourceTag } from '../constants/productCategories';
 import { RootStackParamList } from '../navigation/types';
-import { useIngredientStore } from '../stores/ingredientStore';
 import { useSettingsStore } from '../stores/settingsStore';
+import { addIngredient as dbAddIngredient, updateIngredient as dbUpdateIngredient, deleteIngredient as dbDeleteIngredient, getIngredientById, listAllIngredients } from '../db/queries/ingredients';
 import { formatMoney } from '../utils/currency';
 import { OptionChip } from '../components/ui/OptionChip';
 import { FormSection } from '../components/ui/FormSection';
@@ -24,7 +23,6 @@ import { useState } from 'react';
 const ingredientSchema = z.object({
   name: z.string().trim().min(1, 'Name is required'),
   classification: z.enum(['measurable', 'fixed']),
-  tag: z.string().min(1, 'Tag is required'),
   unit: z.enum(INGREDIENT_UNITS),
   quantity: z
     .string()
@@ -47,6 +45,7 @@ const ingredientSchema = z.object({
     .refine((value) => !Number.isNaN(Number(value)) && Number(value) > 0, {
       message: 'Yield factor must be greater than 0',
     }),
+  tag: z.enum(RESOURCE_TAGS),
 });
 
 type IngredientFormValues = z.infer<typeof ingredientSchema>;
@@ -54,16 +53,25 @@ type Props = NativeStackScreenProps<RootStackParamList, 'IngredientForm'>;
 const QUICK_UNITS: IngredientUnit[] = ['pcs', 'g', 'kg', 'ml', 'liter', 'pack'];
 
 export function IngredientFormScreen({ route, navigation }: Props) {
-  const insets = useSafeAreaInsets();
   const ingredientId = route.params?.ingredientId;
-  const addIngredient = useIngredientStore((state) => state.addIngredient);
-  const editIngredient = useIngredientStore((state) => state.editIngredient);
-  const ingredients = useIngredientStore((state) => state.ingredients);
   const currencyCode = useSettingsStore((state) => state.settings.currencyCode);
 
-  const existingIngredient = React.useMemo(() => 
-    ingredientId ? ingredients.find(i => i.id === ingredientId) : undefined,
-  [ingredients, ingredientId]);
+  // Load data directly from DB — no store subscription = no concurrent re-render crash
+  const [existingIngredient, setExistingIngredient] = useState<any>(null);
+  const [allNames, setAllNames] = useState<string[]>([]);
+
+  React.useEffect(() => {
+    async function load() {
+      const all = await listAllIngredients();
+      setAllNames(all.map((i) => i.name.trim().toLowerCase()));
+      if (ingredientId) {
+        const found = await getIngredientById(ingredientId);
+        if (found) setExistingIngredient(found);
+      }
+    }
+    void load();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const [modalState, setModalState] = useState<{
     visible: boolean;
@@ -85,12 +93,12 @@ export function IngredientFormScreen({ route, navigation }: Props) {
     resolver: zodResolver(ingredientSchema),
     defaultValues: {
       name: existingIngredient?.name ?? '',
-      classification: existingIngredient?.classification ?? 'measurable',
-      tag: (existingIngredient as any)?.tag ?? 'Other',
+      classification: existingIngredient?.classification ?? route.params?.prefillClassification ?? 'measurable',
       unit: (existingIngredient?.unit as IngredientUnit) ?? 'pcs',
       quantity: String(existingIngredient?.quantity ?? '1'),
       pricePerUnit: String(existingIngredient?.pricePerUnit ?? ''),
       yieldFactor: String(existingIngredient?.yieldFactor ?? '1'),
+      tag: (existingIngredient?.tag as ResourceTag) ?? (route.params?.prefillTag as ResourceTag) ?? 'Raw Material',
     },
   });
 
@@ -100,20 +108,19 @@ export function IngredientFormScreen({ route, navigation }: Props) {
       reset({
         name: existingIngredient.name,
         classification: existingIngredient.classification as any,
-        tag: (existingIngredient as any)?.tag ?? 'Other',
         unit: existingIngredient.unit as IngredientUnit,
         quantity: String(existingIngredient.quantity),
         pricePerUnit: String(existingIngredient.pricePerUnit),
         yieldFactor: String(existingIngredient.yieldFactor),
+        tag: (existingIngredient.tag as ResourceTag) ?? 'Raw Material',
       });
     }
   }, [existingIngredient, reset]);
 
   const selectedUnit = watch('unit');
   const selectedClassification = watch('classification');
-  const selectedTag = watch('tag');
   const additionalUnits = React.useMemo(
-    () => INGREDIENT_UNITS.filter((u) => !QUICK_UNITS.includes(u as IngredientUnit)),
+    () => INGREDIENT_UNITS.filter((u) => !QUICK_UNITS.includes(u as IngredientUnit) && u !== 'UNIT'),
     []
   );
 
@@ -127,16 +134,13 @@ export function IngredientFormScreen({ route, navigation }: Props) {
     const trimmedName = values.name.trim().toLowerCase();
 
     // Duplicate name guard
-    if (!ingredientId) {
-      const duplicate = ingredients.find(i => i.name.trim().toLowerCase() === trimmedName);
-      if (duplicate) {
-        setModalState({
-          visible: true,
-          title: 'Duplicate Resource',
-          message: `A resource named "${duplicate.name}" already exists. Please use a different name.`,
-        });
-        return;
-      }
+    if (!ingredientId && allNames.includes(trimmedName)) {
+      setModalState({
+        visible: true,
+        title: 'Duplicate Resource',
+        message: `A resource with that name already exists. Please use a different name.`,
+      });
+      return;
     }
 
     const payload: IngredientInput = {
@@ -152,11 +156,13 @@ export function IngredientFormScreen({ route, navigation }: Props) {
 
     try {
       if (ingredientId) {
-        await editIngredient(undefined, ingredientId, payload);
+        await dbUpdateIngredient(ingredientId, payload);
       } else {
-        await addIngredient(payload);
+        await dbAddIngredient(payload);
       }
-      navigation.goBack();
+      // Delay by two frames so Fabric finishes committing the isSubmitting
+      // re-render before the unmount+navigation is queued
+      requestAnimationFrame(() => requestAnimationFrame(() => navigation.goBack()));
     } catch (err) {
       Alert.alert('Error', 'Could not save resource.');
     }
@@ -169,7 +175,7 @@ export function IngredientFormScreen({ route, navigation }: Props) {
       message: `Delete "${existingIngredient?.name}" permanently? This will remove it from all product compositions.`,
       onConfirm: async () => {
         if (ingredientId) {
-          await useIngredientStore.getState().removeIngredient(undefined, ingredientId);
+          await dbDeleteIngredient(ingredientId);
           setModalState({
             visible: true,
             title: 'Deleted',
@@ -183,26 +189,11 @@ export function IngredientFormScreen({ route, navigation }: Props) {
 
   return (
     <View className="flex-1 bg-white">
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      >
         <ScrollView className="flex-1 px-6" keyboardShouldPersistTaps="handled">
           <View style={{ height: 24 }} />
 
           <FormSection title="Resource Identity" icon="leaf">
             <View className="mb-6">
-              <Text className="text-[10px] font-black text-brand-400 uppercase mb-3 tracking-[2px] px-1">Resource Tag</Text>
-              <View className="flex-row flex-wrap gap-2 mb-6">
-                {RESOURCE_TAGS.map((t) => (
-                  <OptionChip
-                    key={t}
-                    label={t}
-                    selected={selectedTag === t}
-                    onPress={() => setValue('tag', t, { shouldValidate: true })}
-                  />
-                ))}
-              </View>
               <Text className="text-[10px] font-black text-brand-400 uppercase mb-2 tracking-[2px] px-1">Identity Name</Text>
               <Controller
                 control={control}
@@ -223,7 +214,7 @@ export function IngredientFormScreen({ route, navigation }: Props) {
 
             <View>
               <Text className="text-[10px] font-black text-brand-400 uppercase mb-3 tracking-[2px] px-1">Nature of Resource</Text>
-              <View className="flex-row gap-3">
+              <View style={{ flexDirection: 'row', gap: 12 }}>
                 <OptionChip
                   label="Measurable"
                   selected={selectedClassification === 'measurable'}
@@ -369,8 +360,21 @@ export function IngredientFormScreen({ route, navigation }: Props) {
               onPress={handleSubmit(onSubmit)}
               disabled={isSubmitting}
             >
-              <View className={`h-16 items-center justify-center rounded-[24px] bg-brand-900 ${isSubmitting ? 'opacity-70' : ''}`}>
-                <Text className="font-black text-white text-base tracking-[2px] uppercase">
+              <View style={{
+                height: 64,
+                alignItems: 'center',
+                justifyContent: 'center',
+                borderRadius: 24,
+                backgroundColor: '#14532d',
+                opacity: isSubmitting ? 0.7 : 1,
+              }}>
+                <Text style={{
+                  fontWeight: '900',
+                  color: '#ffffff',
+                  fontSize: 16,
+                  letterSpacing: 2,
+                  textTransform: 'uppercase',
+                }}>
                   {isSubmitting ? 'Saving...' : ingredientId ? 'Update Resource' : 'Register Resource'}
                 </Text>
               </View>
@@ -380,15 +384,28 @@ export function IngredientFormScreen({ route, navigation }: Props) {
               <Pressable
                 onPress={handleDelete}
               >
-                <View className="h-14 items-center justify-center rounded-[24px] bg-red-50 border border-red-100">
-                  <Text className="font-black text-red-600 text-[10px] tracking-[2px] uppercase">Delete Permanently</Text>
+                <View style={{
+                  height: 56,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  borderRadius: 24,
+                  backgroundColor: '#fef2f2',
+                  borderWidth: 1,
+                  borderColor: '#fee2e2',
+                }}>
+                  <Text style={{
+                    fontWeight: '900',
+                    color: '#dc2626',
+                    fontSize: 10,
+                    letterSpacing: 2,
+                    textTransform: 'uppercase',
+                  }}>Delete Permanently</Text>
                 </View>
               </Pressable>
             )}
           </View>
 
         </ScrollView>
-      </KeyboardAvoidingView>
 
       <ActionModal
         visible={modalState.visible}

@@ -19,6 +19,19 @@ export const productCostGroups = sqliteTable('product_cost_groups', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   name: text('name').notNull(),
   monthlySharedCost: real('monthly_shared_cost').notNull().default(0),
+  /** JSON array of OverheadLineItem — line items that sum to monthlySharedCost */
+  monthlySharedCostBreakdown: text('monthly_shared_cost_breakdown').notNull().default(''),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+});
+
+export const productSalePackages = sqliteTable('product_sale_packages', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  productId: integer('product_id').notNull(),
+  /** User-defined label shown in UI and sales logging (e.g. box, tray, bundle). */
+  name: text('name').notNull(),
+  /** Pieces per package (this drives unitsPerSale in the active product). */
+  piecesPerPackage: integer('pieces_per_package').notNull().default(1),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
 });
@@ -29,6 +42,10 @@ export const products = sqliteTable('products', {
   category: text('category').notNull(),
   costGroupId: integer('cost_group_id'),
   batchSize: integer('batch_size').notNull().default(1),
+  /** Recipe pieces per one customer sale (1 = price is per piece). */
+  unitsPerSale: integer('units_per_sale').notNull().default(1),
+  /** Optional: "box", "tray"; empty = generic label. */
+  saleUnitLabel: text('sale_unit_label').notNull().default(''),
   baseCost: real('base_cost').notNull().default(0),
   targetMargin: real('target_margin').notNull().default(0.5),
   sellingPrice: real('selling_price').notNull().default(0),
@@ -37,6 +54,8 @@ export const products = sqliteTable('products', {
   monthlyGoalProfit: real('monthly_goal_profit').notNull().default(0),
   discountPercent: real('discount_percent').notNull().default(0.20),
   monthlyOverhead: real('monthly_overhead').notNull().default(0),
+  /** JSON array of OverheadLineItem — line items that sum to monthlyOverhead */
+  monthlyOverheadBreakdown: text('monthly_overhead_breakdown').notNull().default(''),
   monthlyProductionQty: real('monthly_production_qty').notNull().default(0),
   isPinned: integer('is_pinned', { mode: 'boolean' }).notNull().default(false),
   color: text('color').notNull().default(''),
@@ -51,6 +70,8 @@ export const productIngredients = sqliteTable('product_ingredients', {
   productId: integer('product_id').notNull(),
   ingredientId: integer('ingredient_id').notNull(),
   quantityUsed: real('quantity_used').notNull(),
+  usageMode: text('usage_mode', { enum: ['per_piece', 'pieces_per_unit', 'per_batch'] }).notNull().default('per_batch'),
+  usageRatio: real('usage_ratio').notNull().default(0),
   costType: text('cost_type', {
     enum: ['ingredients', 'material', 'packaging', 'overhead', 'labor', 'utilities', 'other'],
   }).notNull(),
@@ -80,6 +101,8 @@ export const monthlySales = sqliteTable('monthly_sales', {
   unitsUnsold: integer('units_unsold').notNull().default(0),
   actualRevenue: real('actual_revenue').notNull().default(0),
   actualCost: real('actual_cost').notNull().default(0),
+  ingredientCost: real('ingredient_cost').notNull().default(0),
+  overheadCost: real('overhead_cost').notNull().default(0),
   actualProfit: real('actual_profit').notNull().default(0),
   targetProfit: real('target_profit').notNull().default(0),
   shortfall: real('shortfall').notNull().default(0),

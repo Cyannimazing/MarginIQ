@@ -1,11 +1,12 @@
 import React from 'react';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useMemo, useState } from 'react';
-import { Alert, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { FlatList, Modal, Pressable, Text, TextInput, View, Image } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { Ionicons } from '@expo/vector-icons';
 import { CURRENCIES } from '../constants/currencies';
 import { RootStackParamList } from '../navigation/types';
 import { useSettingsStore } from '../stores/settingsStore';
-import { OptionChip } from '../components/ui/OptionChip';
 import { ActionModal } from '../components/ui/ActionModal';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Onboarding'>;
@@ -21,12 +22,11 @@ export function OnboardingScreen({ navigation }: Props) {
   const [businessName, setBusinessName] = useState(settings.businessName === 'My Business' ? '' : settings.businessName);
   const [currencyCode, setCurrencyCode] = useState(settings.currencyCode);
   const [currencyQuery, setCurrencyQuery] = useState('');
+  const [isCurrencyModalOpen, setIsCurrencyModalOpen] = useState(false);
 
-  const [modalState, setModalState] = useState({
-    visible: false,
-    title: '',
-    message: '',
-  });
+  const [modalState, setModalState] = useState({ visible: false, title: '', message: '' });
+
+  const selectedCurrency = useMemo(() => CURRENCIES.find((c) => c.code === currencyCode), [currencyCode]);
 
   const filteredCurrencies = useMemo(() => {
     const query = currencyQuery.trim().toLowerCase();
@@ -40,150 +40,218 @@ export function OnboardingScreen({ navigation }: Props) {
   }, [currencyQuery]);
 
   const handleNext = () => {
-    if (step === 1) {
-      if (!businessName.trim()) {
-        setModalState({
-          visible: true,
-          title: 'Business Name Required',
-          message: 'Please enter your business name to continue.',
-        });
-        return;
-      }
-      setStep(2);
+    if (!businessName.trim()) {
+      setModalState({ visible: true, title: 'Business Name Required', message: 'Please enter your business name to continue.' });
+      return;
     }
-  };
-
-  const handleBack = () => {
-    if (step > 1) setStep(step - 1);
+    setStep(2);
   };
 
   const handleFinish = async () => {
     try {
-      await saveSettings({
-        businessName: businessName.trim(),
-        currencyCode,
-        onboardingCompleted: true,
-      });
+      await saveSettings({ businessName: businessName.trim(), currencyCode, onboardingCompleted: true });
       navigation.reset({ index: 0, routes: [{ name: 'Dashboard' }] });
     } catch {
-      setModalState({
-        visible: true,
-        title: 'Save Failed',
-        message: 'Unable to save your settings right now. Please try again.',
-      });
+      setModalState({ visible: true, title: 'Save Failed', message: 'Unable to save your settings. Please try again.' });
     }
   };
 
   return (
-    <ScrollView className="flex-1 bg-slate-50" keyboardShouldPersistTaps="handled">
-      <View className="px-6 pb-12 pt-10">
-        {/* Header */}
-        <Text className="text-3xl font-bold text-slate-900">Welcome to</Text>
-        <Text className="text-3xl font-bold text-brand-600">MarginIQ</Text>
-        <Text className="mt-2 text-sm leading-5 text-slate-500">
-          Let's get your business set up in just a couple of steps.
+    <SafeAreaView style={{ flex: 1, backgroundColor: '#ffffff' }} edges={['top', 'bottom']}>
+      {/* Header */}
+      <View style={{ backgroundColor: '#14532d', paddingHorizontal: 28, paddingTop: 32, paddingBottom: 36 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 24 }}>
+          <Image
+            source={require('../../assets/BLACK-LOGO.png')}
+            style={{ width: 36, height: 36, tintColor: '#ffffff' }}
+            resizeMode="contain"
+          />
+          <Text style={{ fontSize: 22, fontWeight: '900', color: '#ffffff', letterSpacing: -0.5 }}>MarginIQ</Text>
+        </View>
+        <Text style={{ fontSize: 26, fontWeight: '900', color: '#ffffff', letterSpacing: -0.5, lineHeight: 32 }}>
+          {step === 1 ? "Let's set up\nyour business" : 'Choose your\ncurrency'}
+        </Text>
+        <Text style={{ fontSize: 13, color: '#86efac', marginTop: 8, fontWeight: '500' }}>
+          {step === 1 ? 'Step 1 of 2 — Business identity' : 'Step 2 of 2 — Financial settings'}
         </Text>
 
-        {/* Step indicator */}
-        <View className="mt-6 flex-row items-center gap-2">
+        {/* Step bar */}
+        <View style={{ flexDirection: 'row', gap: 6, marginTop: 20 }}>
           {Array.from({ length: TOTAL_STEPS }).map((_, i) => (
             <View
               key={i}
-              className={`h-1.5 flex-1 rounded-full ${i < step ? 'bg-brand-900' : 'bg-slate-200'}`}
+              style={{
+                flex: 1,
+                height: 4,
+                borderRadius: 4,
+                backgroundColor: i < step ? '#ffffff' : 'rgba(255,255,255,0.25)',
+              }}
             />
           ))}
         </View>
-        <Text className="mt-1 text-xs text-slate-400">
-          Step {step} of {TOTAL_STEPS}
-        </Text>
+      </View>
 
-        {/* Step 1 — Business Name */}
+      {/* Body */}
+      <View style={{ flex: 1, paddingHorizontal: 24, paddingTop: 32 }}>
         {step === 1 && (
-          <View className="mt-8">
-            <Text className="text-xl font-bold text-slate-900">What's your business name?</Text>
-            <Text className="mt-1 text-sm text-slate-500">
-              This will appear on your dashboard and reports.
+          <>
+            <Text style={{ fontSize: 11, fontWeight: '900', color: '#14532d', textTransform: 'uppercase', letterSpacing: 2, marginBottom: 8, opacity: 0.6 }}>
+              Business Name
             </Text>
             <TextInput
               value={businessName}
               onChangeText={setBusinessName}
               placeholder="e.g. Maria's Bakery"
               autoFocus
-              className="mt-5 rounded-2xl border border-slate-300 bg-white px-4 py-4 text-base text-slate-900"
               placeholderTextColor="#94a3b8"
-              returnKeyType="next"
+              returnKeyType="done"
               onSubmitEditing={handleNext}
+              style={{
+                borderRadius: 20,
+                borderWidth: 1,
+                borderColor: '#dcfce7',
+                backgroundColor: '#f0fdf4',
+                paddingHorizontal: 20,
+                paddingVertical: 18,
+                fontSize: 18,
+                fontWeight: '800',
+                color: '#14532d',
+              }}
             />
-          </View>
+            <Text style={{ fontSize: 12, color: '#94a3b8', marginTop: 10, fontWeight: '500' }}>
+              This appears on your dashboard and reports.
+            </Text>
+          </>
         )}
 
-        {/* Step 2 — Currency */}
         {step === 2 && (
-          <View className="mt-8">
-            <Text className="text-xl font-bold text-slate-900">Choose your currency</Text>
-            <Text className="mt-1 text-sm text-slate-500">
-              Used for all prices, costs, and reports.
+          <>
+            <Text style={{ fontSize: 11, fontWeight: '900', color: '#14532d', textTransform: 'uppercase', letterSpacing: 2, marginBottom: 8, opacity: 0.6 }}>
+              Active Currency
             </Text>
-            <TextInput
-              value={currencyQuery}
-              onChangeText={setCurrencyQuery}
-              placeholder="Search by code, name, or symbol…"
-              className="mt-5 rounded-2xl border border-slate-300 bg-white px-4 py-3 text-base text-slate-900"
-              placeholderTextColor="#94a3b8"
-              autoCapitalize="none"
-            />
+            <Pressable onPress={() => setIsCurrencyModalOpen(true)}>
+              <View style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                borderRadius: 20,
+                borderWidth: 1,
+                borderColor: '#dcfce7',
+                backgroundColor: '#f0fdf4',
+                paddingHorizontal: 20,
+                paddingVertical: 16,
+              }}>
+                <View style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: '#14532d', alignItems: 'center', justifyContent: 'center', marginRight: 16 }}>
+                  <Text style={{ fontSize: 16, fontWeight: '900', color: '#ffffff' }}>{selectedCurrency?.symbol ?? '$'}</Text>
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ fontSize: 17, fontWeight: '900', color: '#14532d' }}>{currencyCode}</Text>
+                  <Text style={{ fontSize: 12, color: '#64748b', marginTop: 2, fontWeight: '500' }} numberOfLines={1}>
+                    {selectedCurrency?.name ?? 'Select a currency'}
+                  </Text>
+                </View>
+                <Ionicons name="chevron-forward" size={20} color="#14532d" />
+              </View>
+            </Pressable>
+            <Text style={{ fontSize: 12, color: '#94a3b8', marginTop: 10, fontWeight: '500' }}>
+              Used for all prices, costs, and reports. You can change this later.
+            </Text>
+          </>
+        )}
+      </View>
 
-            <View className="mt-6 flex-row flex-wrap">
-              {filteredCurrencies.slice(0, 30).map((currency) => (
-                <OptionChip
-                  key={currency.code}
-                  label={`${currency.symbol} ${currency.code}`}
-                  selected={currencyCode === currency.code}
-                  onPress={() => setCurrencyCode(currency.code)}
-                  size="sm"
-                />
-              ))}
-              {!filteredCurrencies.length ? (
-                <Text className="text-xs text-slate-500 font-bold ml-2">No currencies matched your search.</Text>
-              ) : null}
+      {/* Footer buttons */}
+      <View style={{ paddingHorizontal: 24, paddingBottom: 24, gap: 12 }}>
+        {step < TOTAL_STEPS ? (
+          <Pressable onPress={handleNext}>
+            <View style={{ height: 56, alignItems: 'center', justifyContent: 'center', borderRadius: 28, backgroundColor: '#14532d' }}>
+              <Text style={{ fontWeight: '900', color: '#ffffff', fontSize: 13, textTransform: 'uppercase', letterSpacing: 2 }}>Continue</Text>
+            </View>
+          </Pressable>
+        ) : (
+          <Pressable onPress={() => void handleFinish()} disabled={isLoading}>
+            <View style={{ height: 56, alignItems: 'center', justifyContent: 'center', borderRadius: 28, backgroundColor: '#14532d', opacity: isLoading ? 0.7 : 1 }}>
+              <Text style={{ fontWeight: '900', color: '#ffffff', fontSize: 13, textTransform: 'uppercase', letterSpacing: 2 }}>
+                {isLoading ? 'Setting up...' : 'Launch MarginIQ'}
+              </Text>
+            </View>
+          </Pressable>
+        )}
+
+        {step > 1 && (
+          <Pressable onPress={() => setStep(step - 1)}>
+            <View style={{ height: 48, alignItems: 'center', justifyContent: 'center', borderRadius: 28, borderWidth: 1, borderColor: '#dcfce7', backgroundColor: '#f0fdf4' }}>
+              <Text style={{ fontWeight: '900', color: '#14532d', fontSize: 12, textTransform: 'uppercase', letterSpacing: 2 }}>Back</Text>
+            </View>
+          </Pressable>
+        )}
+      </View>
+
+      {/* Currency picker modal — same as Business Profile */}
+      <Modal visible={isCurrencyModalOpen} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setIsCurrencyModalOpen(false)}>
+        <SafeAreaView style={{ flex: 1, backgroundColor: '#ffffff' }} edges={['top', 'bottom']}>
+          <View style={{ paddingHorizontal: 24, paddingVertical: 16, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderBottomWidth: 1, borderBottomColor: '#f0fdf4' }}>
+            <Text style={{ fontSize: 18, fontWeight: '900', color: '#14532d' }}>Select Currency</Text>
+            <Pressable onPress={() => setIsCurrencyModalOpen(false)} style={{ width: 40, height: 40, alignItems: 'center', justifyContent: 'center' }}>
+              <Ionicons name="close" size={24} color="#14532d" />
+            </Pressable>
+          </View>
+
+          <View style={{ paddingHorizontal: 24, paddingVertical: 16 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: '#f0fdf4', borderRadius: 24, paddingHorizontal: 16, paddingVertical: 12, borderWidth: 1, borderColor: '#dcfce7' }}>
+              <Ionicons name="search" size={20} color="#94a3b8" />
+              <TextInput
+                style={{ flex: 1, marginLeft: 12, fontSize: 15, fontWeight: '600', color: '#14532d' }}
+                placeholder="Search currencies..."
+                placeholderTextColor="#94a3b8"
+                autoFocus
+                value={currencyQuery}
+                onChangeText={setCurrencyQuery}
+              />
+              {currencyQuery.length > 0 && (
+                <Pressable onPress={() => setCurrencyQuery('')}>
+                  <Ionicons name="close-circle" size={20} color="#cbd5e1" />
+                </Pressable>
+              )}
             </View>
           </View>
-        )}
 
-        {/* Navigation buttons */}
-        <View className="mt-10 gap-3">
-          {step < TOTAL_STEPS ? (
-            <Pressable
-              onPress={handleNext}
-            >
-              <View className="items-center rounded-2xl bg-brand-900 py-4 shadow-lg">
-                <Text className="font-black text-white uppercase tracking-widest text-sm">Next Page</Text>
-              </View>
-            </Pressable>
-          ) : (
-            <Pressable
-              onPress={() => void handleFinish()}
-              disabled={isLoading}
-            >
-              <View className={`items-center rounded-2xl bg-brand-900 py-4 shadow-lg ${isLoading ? 'opacity-70' : ''}`}>
-                <Text className="font-black text-white uppercase tracking-widest text-sm">
-                  {isLoading ? 'Saving...' : 'Complete Setup 🚀'}
-                </Text>
-              </View>
-            </Pressable>
-          )}
-
-          {step > 1 && (
-            <Pressable
-              onPress={handleBack}
-            >
-              <View className="items-center rounded-2xl border border-slate-200 bg-white py-4">
-                <Text className="font-black text-slate-400 uppercase tracking-widest text-sm">Previous Step</Text>
-              </View>
-            </Pressable>
-          )}
-        </View>
-      </View>
+          <FlatList
+            data={filteredCurrencies}
+            keyExtractor={(item) => item.code}
+            initialNumToRender={20}
+            maxToRenderPerBatch={20}
+            windowSize={5}
+            keyboardShouldPersistTaps="handled"
+            contentContainerStyle={{ paddingHorizontal: 24, paddingBottom: 40, gap: 8 }}
+            renderItem={({ item }) => {
+              const isActive = item.code === currencyCode;
+              return (
+                <Pressable onPress={() => { setCurrencyCode(item.code); setIsCurrencyModalOpen(false); }}>
+                  <View style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    paddingHorizontal: 20,
+                    paddingVertical: 16,
+                    borderRadius: 20,
+                    borderWidth: 1,
+                    backgroundColor: isActive ? '#f0fdf4' : '#ffffff',
+                    borderColor: isActive ? '#bbf7d0' : '#f1f5f9',
+                  }}>
+                    <View style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: '#14532d10', alignItems: 'center', justifyContent: 'center', marginRight: 16, borderWidth: 1, borderColor: '#dcfce7' }}>
+                      <Text style={{ fontSize: 14, fontWeight: '900', color: '#14532d' }}>{item.symbol}</Text>
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ fontSize: 15, fontWeight: '900', color: '#14532d' }}>{item.code}</Text>
+                      <Text style={{ fontSize: 11, fontWeight: '600', color: '#64748b', marginTop: 2 }} numberOfLines={1}>{item.name}</Text>
+                    </View>
+                    {isActive && <Ionicons name="checkmark-circle" size={24} color="#16a34a" />}
+                  </View>
+                </Pressable>
+              );
+            }}
+          />
+        </SafeAreaView>
+      </Modal>
 
       <ActionModal
         visible={modalState.visible}
@@ -191,6 +259,6 @@ export function OnboardingScreen({ navigation }: Props) {
         message={modalState.message}
         onPrimaryAction={() => setModalState((s) => ({ ...s, visible: false }))}
       />
-    </ScrollView>
+    </SafeAreaView>
   );
 }

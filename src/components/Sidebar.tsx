@@ -3,6 +3,7 @@ import {
   Animated,
   Dimensions,
   Pressable,
+  ScrollView,
   Text,
   View,
   StyleSheet,
@@ -94,7 +95,7 @@ export function Sidebar({ isOpen, onClose, currentView, onSelectView }: SidebarP
           <Text style={s.logoName}>MarginIQ</Text>
         </View>
 
-        <View style={s.menuContainer}>
+        <ScrollView style={s.menuContainer} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 16 }}>
           <Text style={s.sectionLabel}>Collection</Text>
           {menuItems.map((item) => {
             const isActive = 
@@ -168,7 +169,7 @@ export function Sidebar({ isOpen, onClose, currentView, onSelectView }: SidebarP
               </Pressable>
             )
           })}
-        </View>
+        </ScrollView>
 
         <View style={s.footer}>
           <Text style={s.versionText}>v1.0.0</Text>

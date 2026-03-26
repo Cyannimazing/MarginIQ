@@ -1,4 +1,5 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { useFocusEffect } from '@react-navigation/native';
 import {
   ActivityIndicator,
   Alert,
@@ -32,6 +33,7 @@ import { ProductActionModal } from '../features/products/components/ProductActio
 import { useUIStore } from '../stores/uiStore';
 import { ActionModal } from '../components/ui/ActionModal';
 import { OptionChip } from '../components/ui/OptionChip';
+import { safeNavigate } from '../navigation/navigationService';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Dashboard'>;
 
@@ -78,13 +80,6 @@ export default function DashboardScreen({ navigation }: Props) {
     opacity: backdropOpacity.value,
   }));
 
-  const [overheadModal, setOverheadModal] = useState<{
-    visible: boolean;
-    type: 'group' | 'product';
-    id: number;
-    currentValue: string;
-  }>({ visible: false, type: 'product', id: 0, currentValue: '' });
-
   const [modalState, setModalState] = useState<{
     visible: boolean;
     title: string;
@@ -119,6 +114,12 @@ export default function DashboardScreen({ navigation }: Props) {
     void loadTrashProducts();
     void loadMonthlySales();
   }, [loadProducts, loadTrashProducts, loadMonthlySales]);
+
+  useFocusEffect(
+    useCallback(() => {
+      void loadProducts();
+    }, [loadProducts]),
+  );
 
   const currentList = useMemo(() => {
     if (viewMode === 'trash') return trashProducts;
@@ -361,11 +362,11 @@ export default function DashboardScreen({ navigation }: Props) {
                               if (p.costGroupId != null && p.costGroupId !== updateGroupId) return;
                               toggleSelection(p.id);
                             } else {
-                              navigation.navigate('ProductDetail', { productId: p.id });
+                              safeNavigate('ProductDetail', { productId: p.id });
                             }
                           }}
                           onLongPress={(pr) => !isGroupingMode && setSelectedProductId(pr.id)}
-                          onChevronPress={() => navigation.navigate('ProductDetail', { productId: p.id })}
+                          onChevronPress={() => safeNavigate('ProductDetail', { productId: p.id })}
                           earned={getProductEarned(p.id)}
                           currencyCode={currencyCode}
                           isTrashView={viewMode === 'trash'}
@@ -378,12 +379,12 @@ export default function DashboardScreen({ navigation }: Props) {
                 {/* Tucked Badge - Positioned to always be visible */}
                 <View className="flex-row justify-center -mt-4" style={{ zIndex: 30, elevation: 8 }}>
                   <Pressable
-                    onPress={() => setOverheadModal({
-                      visible: true,
-                      type: 'group',
-                      id: item.costGroupId,
-                      currentValue: item.monthlySharedCost ? item.monthlySharedCost.toString() : ''
-                    })}
+                    onPress={() =>
+                      safeNavigate('MonthlyOverheadBreakdown', {
+                        target: 'costGroup',
+                        costGroupId: item.costGroupId,
+                      })
+                    }
                   >
                     <View className="bg-brand-900 rounded-full px-5 py-2.5 shadow-lg border-2 border-white flex-row items-center">
                       <Ionicons name="calculator" size={12} color="white" style={{ marginRight: 6 }} />
@@ -398,7 +399,6 @@ export default function DashboardScreen({ navigation }: Props) {
           } else {
             const p = item.product;
             const isSelected = selectedProductIds.includes(p.id);
-            const hasOverhead = (p.monthlyOverhead || 0) > 0;
 
             return (
               <View className="px-6 mb-6">
@@ -413,30 +413,33 @@ export default function DashboardScreen({ navigation }: Props) {
                         if (p.costGroupId != null && p.costGroupId !== updateGroupId) return;
                         toggleSelection(p.id);
                       } else {
-                        navigation.navigate('ProductDetail', { productId: p.id });
+                        safeNavigate('ProductDetail', { productId: p.id });
                       }
                     }}
                     onLongPress={(pr) => !isGroupingMode && setSelectedProductId(pr.id)}
-                    onChevronPress={() => navigation.navigate('ProductDetail', { productId: p.id })}
+                    onChevronPress={() => safeNavigate('ProductDetail', { productId: p.id })}
                     earned={getProductEarned(p.id)}
                     currencyCode={currencyCode}
                     isTrashView={viewMode === 'trash'}
                   />
                 </View>
-
-                <View className="flex-row justify-center -mt-3" style={{ zIndex: 30, elevation: 8 }}>
+                
+                {/* Tucked Badge for Product Overhead */}
+                <View className="flex-row justify-center -mt-4" style={{ zIndex: 30, elevation: 8 }}>
                   <Pressable
-                    onPress={() => setOverheadModal({
-                      visible: true,
-                      type: 'product',
-                      id: p.id,
-                      currentValue: p.monthlyOverhead ? p.monthlyOverhead.toString() : ''
-                    })}
+                    onPress={() =>
+                      safeNavigate('MonthlyOverheadBreakdown', {
+                        target: 'product',
+                        productId: p.id,
+                      })
+                    }
                   >
-                    <View className="bg-brand-900 rounded-full px-4 py-1.5 shadow-md border-2 border-white flex-row items-center">
-                      <Ionicons name="calculator" size={10} color="white" style={{ marginRight: 4 }} />
-                      <Text className="text-[9px] font-black text-white tracking-widest uppercase">
-                        Monthly Overhead: {formatMoney(p.monthlyOverhead || 0, currencyCode)}
+                    <View className={`${(p.monthlyOverhead || 0) > 0 ? 'bg-brand-900' : 'bg-brand-50'} rounded-full px-5 py-2.5 shadow-lg border-2 ${Math.max(Number(p.monthlyOverhead), 0) > 0 ? 'border-white' : 'border-brand-200'} flex-row items-center`}>
+                      <Ionicons name="calculator" size={12} color={(p.monthlyOverhead || 0) > 0 ? "white" : "#14532d"} style={{ marginRight: 6 }} />
+                      <Text className={`text-[10px] font-black tracking-widest uppercase ${(p.monthlyOverhead || 0) > 0 ? 'text-white' : 'text-brand-900'}`}>
+                        {(p.monthlyOverhead || 0) > 0
+                          ? `Monthly Overhead: ${formatMoney(p.monthlyOverhead || 0, currencyCode)}`
+                          : 'Setup Monthly Overhead'}
                       </Text>
                     </View>
                   </Pressable>
@@ -465,7 +468,6 @@ export default function DashboardScreen({ navigation }: Props) {
         onTrash={(id) => confirmAction('Move to Trash', 'Are you sure you want to move this product to the trash?', 'Move', () => trashProduct(id), true)}
         onRestore={(id) => confirmAction('Restore Product', 'Are you sure you want to restore this product?', 'Restore', () => restoreProduct(id), false)}
         onDeletePermanent={(id) => confirmAction('Delete Forever', 'Permanently delete this product? This action cannot be undone.', 'Delete Forever', () => removeProduct(id), true)}
-        navigation={navigation}
       />
 
       {/* Group Modal */}
@@ -539,9 +541,10 @@ export default function DashboardScreen({ navigation }: Props) {
             alignItems: 'flex-end',
             gap: 12,
             zIndex: 50,
+            pointerEvents: 'box-none',
           }}>
             {isGroupingMode ? (
-              <View style={{ alignItems: 'flex-end', gap: 10 }}>
+              <View style={{ alignItems: 'flex-end', gap: 10, pointerEvents: 'box-none' }}>
                 {/* 4. Top - Shortest: Delete */}
                 {updateGroupId != null && (
                   <Pressable
@@ -658,7 +661,7 @@ export default function DashboardScreen({ navigation }: Props) {
                   <Pressable
                     onPress={() => {
                       setIsFABExpanded(false);
-                      navigation.navigate('ProductForm');
+                      safeNavigate('ProductForm');
                     }}
                   >
                     <View className="flex-row items-center gap-3">
@@ -721,62 +724,6 @@ export default function DashboardScreen({ navigation }: Props) {
         }}
         onSecondaryAction={() => setModalState((s: any) => ({ ...s, visible: false }))}
       />
-
-      {/* Overhead Modal */}
-      <Modal visible={overheadModal.visible} transparent animationType="fade" onRequestClose={() => setOverheadModal(s => ({ ...s, visible: false }))}>
-        <View className="flex-1 bg-black/50 justify-center items-center px-6">
-          <View className="bg-white rounded-[32px] w-full p-6 shadow-xl">
-            <Text className="text-xl font-black text-brand-900 text-center mb-2">Monthly Overhead</Text>
-            <Text className="text-sm font-medium text-slate-500 text-center mb-6">
-              Enter the total recurring cost for this {overheadModal.type}.
-            </Text>
-
-            <TextInput
-              value={overheadModal.currentValue}
-              onChangeText={(val) => setOverheadModal(s => ({ ...s, currentValue: val }))}
-              placeholder="0.00"
-              placeholderTextColor="#adb5bd"
-              keyboardType="numeric"
-              autoFocus
-              className="rounded-[24px] bg-brand-50/50 border border-brand-100 px-5 py-4 text-base font-bold text-center text-brand-900 mb-6"
-            />
-
-            <View className="flex-row gap-3">
-              <Pressable className="flex-1" onPress={() => setOverheadModal(s => ({ ...s, visible: false }))}>
-                <View className="h-14 items-center justify-center rounded-[24px] bg-slate-100">
-                  <Text className="font-bold text-slate-600">Cancel</Text>
-                </View>
-              </Pressable>
-              <Pressable
-                className="flex-1"
-                onPress={async () => {
-                  const val = parseFloat(overheadModal.currentValue) || 0;
-                  try {
-                    if (overheadModal.type === 'group') {
-                      await editCostGroup(overheadModal.id, { monthlySharedCost: val });
-                    } else {
-                      await editProduct(overheadModal.id, { monthlyOverhead: val });
-                    }
-                    setOverheadModal(s => ({ ...s, visible: false }));
-                  } catch {
-                    setModalState({
-                      visible: true,
-                      title: 'Error',
-                      message: 'Unable to save overhead.',
-                      confirmText: 'OK',
-                      isAlert: true,
-                    });
-                  }
-                }}
-              >
-                <View className="h-14 items-center justify-center rounded-[24px] bg-brand-900">
-                  <Text className="font-bold text-white">Save</Text>
-                </View>
-              </Pressable>
-            </View>
-          </View>
-        </View>
-      </Modal>
 
     </View>
   );

@@ -51,6 +51,19 @@ export async function updateIngredient(id: number, input: IngredientInput) {
     .execute();
 }
 
+export async function getIngredientById(id: number) {
+  const rows = await db.select().from(ingredients).where(eq(ingredients.id, id)).limit(1);
+  return rows[0] ?? null;
+}
+
+export async function listIngredientIdsByProduct(productId: number): Promise<number[]> {
+  const rows = await db
+    .select({ ingredientId: productIngredients.ingredientId })
+    .from(productIngredients)
+    .where(eq(productIngredients.productId, productId));
+  return rows.map((r) => r.ingredientId);
+}
+
 export async function deleteIngredient(id: number) {
   // Cascade: remove all product composition links first
   await db.delete(productIngredients).where(eq(productIngredients.ingredientId, id)).execute();

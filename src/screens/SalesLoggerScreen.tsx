@@ -16,6 +16,7 @@ import {
   roundTo,
 } from '../utils/formulas';
 import { formatMoney } from '../utils/currency';
+import { normalizeUnitsPerSale, perSaleCost, saleUnitDisplayName } from '../utils/productEconomics';
 import { getCurrentMonth, getDailyPeriod, getWeeklyPeriod, isValidMonth } from '../utils/month';
 import { useSettingsStore } from '../stores/settingsStore';
 import { OptionChip } from '../components/ui/OptionChip';
@@ -92,6 +93,7 @@ export function SalesLoggerScreen() {
     setUnitsUnsoldInput('');
   }, [selectedProductId, month]);
 
+
   const selectedProduct = selectedProductId ? getProductById(selectedProductId) : undefined;
   const productIngredients = selectedProductId ? getProductIngredients(selectedProductId) : [];
 
@@ -102,9 +104,9 @@ export function SalesLoggerScreen() {
     return (pricePerUnit / qty) / yieldFactor;
   };
 
-  const { perPieceTotalCost, sellingPrice: derivedSellingPrice } = useMemo(() => {
+  const { perPieceTotalCost, sellingPrice: derivedSellingPrice, unitsPerSale: logPackageSize } = useMemo(() => {
     if (!selectedProduct) {
-      return { perPieceTotalCost: 0, sellingPrice: 0 };
+      return { perPieceTotalCost: 0, sellingPrice: 0, unitsPerSale: 1 };
     }
     const ingredientsList = productIngredients.filter(pi => pi.costType === 'ingredients');
     const otherCostsList = productIngredients.filter(pi => pi.costType !== 'ingredients');
@@ -125,15 +127,21 @@ export function SalesLoggerScreen() {
     const bTotalCost = iTotal + oTotal;
     const bSize = Math.max(Number(selectedProduct.batchSize || 1), 1);
     const pPieceTotalCost = bTotalCost / bSize;
-
-    const fullyLoadedPerPieceCost = pPieceTotalCost;
+    const uSale = normalizeUnitsPerSale((selectedProduct as any).unitsPerSale, bSize);
+    const costPerLoggedUnit = perSaleCost(pPieceTotalCost, uSale);
 
     let sPrice = isFinite(Number(selectedProduct.sellingPrice)) ? Number(selectedProduct.sellingPrice) : 0;
     const targetMarginVal = isFinite(Number(selectedProduct.targetMargin)) ? Number(selectedProduct.targetMargin) : 0;
     const vPercent = isFinite(Number(selectedProduct.vatPercent)) ? Number(selectedProduct.vatPercent) : 0;
 
     if (sPrice <= 0) {
-      const suggestedPreVat = calculateSuggestedPrice(pPieceTotalCost, targetMarginVal, selectedProduct.pricingMethod as any, bSize);
+      const batchSales = bSize / uSale;
+      const suggestedPreVat = calculateSuggestedPrice(
+        costPerLoggedUnit,
+        targetMarginVal,
+        selectedProduct.pricingMethod as any,
+        batchSales,
+      );
       sPrice = suggestedPreVat * (1 + vPercent);
     }
 
@@ -141,10 +149,36 @@ export function SalesLoggerScreen() {
     sPrice = roundTo(isFinite(sPrice) ? sPrice : 0, 2);
 
     return {
-      perPieceTotalCost: roundTo(fullyLoadedPerPieceCost || 0, 4),
+      perPieceTotalCost: roundTo(costPerLoggedUnit || 0, 4),
       sellingPrice: sPrice,
+      unitsPerSale: uSale,
     };
   }, [selectedProduct, productIngredients, costGroups, products]);
+
+  const totalMonthlyOverhead = useMemo(() => {
+    if (!selectedProduct) return 0;
+    const directOverhead = Math.max(Number(selectedProduct.monthlyOverhead) || 0, 0);
+    const costGroupId = (selectedProduct as any).costGroupId;
+    const linkedGroup = costGroups.find(g => g.id === costGroupId);
+    const groupOverhead = linkedGroup
+      ? Math.max(Number((linkedGroup as any).monthlySharedCost) || 0, 0)
+      : 0;
+    const peersInGroup = costGroupId
+      ? products.filter(p => (p as any).costGroupId === costGroupId).length
+      : 0;
+    const groupShare = peersInGroup > 0 ? groupOverhead / peersInGroup : 0;
+    return directOverhead + groupShare;
+  }, [selectedProduct, costGroups, products]);
+
+  const overheadPerUnit = useMemo(() => {
+    if (!selectedProduct || totalMonthlyOverhead <= 0) return 0;
+    const goalProfit = Math.max(Number(selectedProduct.monthlyGoalProfit) || 0, 0);
+    const profitPerPiece = derivedSellingPrice - perPieceTotalCost;
+    const goalUnits = goalProfit > 0 && profitPerPiece > 0
+      ? Math.ceil((goalProfit + totalMonthlyOverhead) / profitPerPiece)
+      : 0;
+    return goalUnits > 0 ? totalMonthlyOverhead / goalUnits : 0;
+  }, [selectedProduct, totalMonthlyOverhead, derivedSellingPrice, perPieceTotalCost]);
 
   const unitsSold = parseUnits(unitsSoldInput);
   const unitsSoldDiscounted = parseUnits(unitsSoldDiscountedInput);
@@ -152,7 +186,19 @@ export function SalesLoggerScreen() {
   const unitsProduced = unitsSold + unitsSoldDiscounted + unitsUnsold;
 
   const sellingPrice = derivedSellingPrice;
-  const discountedPrice = roundTo(sellingPrice * 0.80, 2);
+  const discPct = Math.min(
+    Math.max(Number(selectedProduct?.discountPercent ?? 0), 0),
+    0.99,
+  );
+  const discountedPrice = roundTo(sellingPrice * (1 - discPct), 2);
+
+  // Clear discounted input when switching to a product that has no discount
+  useEffect(() => {
+    if (discPct === 0) setUnitsSoldDiscountedInput('');
+  }, [discPct]);
+  const logSaleLabel = selectedProduct
+    ? saleUnitDisplayName((selectedProduct as any).saleUnitLabel, logPackageSize)
+    : 'unit';
   const actualRevenue = (unitsSold * sellingPrice) + (unitsSoldDiscounted * discountedPrice);
   const costPerPiece = perPieceTotalCost;
 
@@ -179,6 +225,10 @@ export function SalesLoggerScreen() {
     }
     setIsSaving(true);
     try {
+      const overheadCostTotal = roundTo(Math.min(overheadPerUnit * unitsProduced, totalMonthlyOverhead), 2);
+      const totalActualCost = roundTo(actualCost + overheadCostTotal, 2);
+      const actualProfitNet = roundTo(actualRevenue - totalActualCost, 2);
+
       await saveMonthlySale({
         productId: selectedProductId,
         month: month.trim(),
@@ -186,8 +236,10 @@ export function SalesLoggerScreen() {
         unitsSoldDiscounted,
         unitsUnsold,
         actualRevenue,
-        actualCost,
-        actualProfit,
+        ingredientCost: actualCost,
+        overheadCost: totalMonthlyOverhead,
+        actualCost: totalActualCost,
+        actualProfit: actualProfitNet,
         targetProfit,
         shortfall,
       });
@@ -258,6 +310,12 @@ export function SalesLoggerScreen() {
               <Text className="text-base text-brand-900 font-black">Today · {new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}</Text>
             </View>
 
+            {selectedProduct && logPackageSize > 1 && (
+              <Text className="text-[10px] text-brand-500 font-semibold italic px-1 mb-4">
+                Count each row as one {logSaleLabel} ({logPackageSize} pcs). Price and cost assume one {logSaleLabel} per entry.
+              </Text>
+            )}
+
             <View className="gap-4 mb-6">
               <View>
                 <Text className="text-[10px] font-black text-brand-600 uppercase mb-2 tracking-widest px-1">Sold (Full Price)</Text>
@@ -271,18 +329,22 @@ export function SalesLoggerScreen() {
                   className="rounded-2xl border border-brand-100 bg-brand-50/50 w-full px-4 h-16 text-xl text-brand-900 font-black"
                 />
               </View>
-              <View>
-                <Text className="text-[10px] font-black text-emerald-600 uppercase mb-2 tracking-widest px-1">Sold (Discounted)</Text>
-                <TextInput
-                  value={unitsSoldDiscountedInput}
-                  onChangeText={setUnitsSoldDiscountedInput}
-                  keyboardType="number-pad"
-                  placeholder="0"
-                  placeholderTextColor="#adb5bd"
-                  multiline={false}
-                  className="rounded-2xl border border-emerald-100 bg-emerald-50/30 w-full px-4 h-16 text-xl text-emerald-700 font-black"
-                />
-              </View>
+              {discPct > 0 && (
+                <View>
+                  <Text className="text-[10px] font-black text-emerald-600 uppercase mb-2 tracking-widest px-1">
+                    Sold (Discounted {Math.round(discPct * 100)}% off · {formatMoney(discountedPrice, currencyCode)})
+                  </Text>
+                  <TextInput
+                    value={unitsSoldDiscountedInput}
+                    onChangeText={setUnitsSoldDiscountedInput}
+                    keyboardType="number-pad"
+                    placeholder="0"
+                    placeholderTextColor="#adb5bd"
+                    multiline={false}
+                    className="rounded-2xl border border-emerald-100 bg-emerald-50/30 w-full px-4 h-16 text-xl text-emerald-700 font-black"
+                  />
+                </View>
+              )}
               <View>
                 <Text className="text-[10px] font-black text-brand-600 uppercase mb-2 tracking-widest px-1">Unsold / Wasted</Text>
                 <TextInput
@@ -300,6 +362,14 @@ export function SalesLoggerScreen() {
 
 
           <View className="mt-8 gap-4 pb-20">
+            {overheadPerUnit > 0 && unitsProduced > 0 && (
+              <View className="flex-row items-center gap-2 px-4 py-3 rounded-2xl bg-blue-50 border border-blue-100">
+                <Ionicons name="layers-outline" size={13} color="#2563eb" />
+                <Text className="text-[10px] font-black text-blue-700 uppercase tracking-widest flex-1">
+                  Overhead share · {formatMoney(overheadPerUnit, currencyCode)}/unit × {unitsProduced} = {formatMoney(Math.min(overheadPerUnit * unitsProduced, totalMonthlyOverhead), currencyCode)} deducted{overheadPerUnit * unitsProduced > totalMonthlyOverhead ? ' (capped at monthly max)' : ''}
+                </Text>
+              </View>
+            )}
             <Pressable
               onPress={handleSave}
               disabled={isSaving}

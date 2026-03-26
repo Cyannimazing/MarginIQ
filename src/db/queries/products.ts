@@ -5,9 +5,11 @@ import {
   ProductIngredientUpdateInput,
   ProductInput,
   ProductPricingInput,
+  ProductSalePackageInput,
 } from '../../features/products/types';
 import { db } from '../client';
-import { ingredients, productCostGroups, productIngredients, products } from '../schema';
+import { ingredients, productCostGroups, productIngredients, productSalePackages, products } from '../schema';
+import { normalizeUnitsPerSale } from '../../utils/productEconomics';
 
 const getTimestamp = () => new Date().toISOString();
 
@@ -27,6 +29,35 @@ export async function listProductCostGroups() {
   return db.select().from(productCostGroups).orderBy(asc(productCostGroups.name));
 }
 
+export async function listProductSalePackages(productId: number) {
+  return db
+    .select()
+    .from(productSalePackages)
+    .where(eq(productSalePackages.productId, productId))
+    .orderBy(asc(productSalePackages.piecesPerPackage));
+}
+
+export async function createProductSalePackage(input: ProductSalePackageInput) {
+  const timestamp = getTimestamp();
+  const pieces = Math.max(1, Math.floor(Number(input.piecesPerPackage) || 1));
+  const result = await db
+    .insert(productSalePackages)
+    .values({
+      productId: input.productId,
+      name: input.name.trim(),
+      piecesPerPackage: pieces,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    })
+    .returning({ id: productSalePackages.id })
+    .execute();
+  return result[0].id;
+}
+
+export async function deleteProductSalePackage(id: number) {
+  await db.delete(productSalePackages).where(eq(productSalePackages.id, id)).execute();
+}
+
 export async function createProductCostGroup(input: ProductCostGroupInput) {
   const timestamp = getTimestamp();
   const result = await db
@@ -34,6 +65,7 @@ export async function createProductCostGroup(input: ProductCostGroupInput) {
     .values({
       name: input.name.trim(),
       monthlySharedCost: Math.max(Number(input.monthlySharedCost) || 0, 0),
+      monthlySharedCostBreakdown: input.monthlySharedCostBreakdown ?? '',
       createdAt: timestamp,
       updatedAt: timestamp,
     })
@@ -54,6 +86,8 @@ export async function updateProductCostGroup(
         input.monthlySharedCost === undefined
           ? undefined
           : Math.max(Number(input.monthlySharedCost) || 0, 0),
+      monthlySharedCostBreakdown:
+        input.monthlySharedCostBreakdown === undefined ? undefined : String(input.monthlySharedCostBreakdown),
       updatedAt: getTimestamp(),
     })
     .where(eq(productCostGroups.id, id))
@@ -73,13 +107,16 @@ export async function deleteProductCostGroup(id: number) {
 
 
 export async function createProduct(input: ProductInput) {
+  const bs = Math.max(1, Math.floor(Number(input.batchSize) || 1));
   const result = await db
     .insert(products)
     .values({
       name: input.name.trim(),
       category: input.category,
       costGroupId: input.costGroupId ?? null,
-      batchSize: input.batchSize,
+      batchSize: bs,
+      unitsPerSale: normalizeUnitsPerSale(input.unitsPerSale, bs),
+      saleUnitLabel: (input.saleUnitLabel ?? '').trim(),
       baseCost: input.baseCost,
       targetMargin: input.targetMargin,
       sellingPrice: input.sellingPrice,
@@ -88,6 +125,7 @@ export async function createProduct(input: ProductInput) {
       monthlyGoalProfit: input.monthlyGoalProfit,
       discountPercent: input.discountPercent ?? 0.20,
       monthlyOverhead: input.monthlyOverhead ?? 0,
+      monthlyOverheadBreakdown: input.monthlyOverheadBreakdown ?? '',
       monthlyProductionQty: input.monthlyProductionQty ?? 0,
       isPinned: input.isPinned ?? false,
       color: input.color ?? '',
@@ -101,13 +139,16 @@ export async function createProduct(input: ProductInput) {
 }
 
 export async function updateProduct(id: number, input: ProductInput) {
+  const bs = Math.max(1, Math.floor(Number(input.batchSize) || 1));
   await db
     .update(products)
     .set({
       name: input.name.trim(),
       category: input.category,
       costGroupId: input.costGroupId ?? null,
-      batchSize: input.batchSize,
+      batchSize: bs,
+      unitsPerSale: normalizeUnitsPerSale(input.unitsPerSale, bs),
+      saleUnitLabel: (input.saleUnitLabel ?? '').trim(),
       baseCost: input.baseCost,
       targetMargin: input.targetMargin,
       sellingPrice: input.sellingPrice,
@@ -116,6 +157,8 @@ export async function updateProduct(id: number, input: ProductInput) {
       monthlyGoalProfit: input.monthlyGoalProfit,
       discountPercent: input.discountPercent ?? 0.20,
       monthlyOverhead: input.monthlyOverhead ?? 0,
+      monthlyOverheadBreakdown:
+        input.monthlyOverheadBreakdown === undefined ? undefined : String(input.monthlyOverheadBreakdown),
       monthlyProductionQty: input.monthlyProductionQty ?? 0,
       updatedAt: getTimestamp(),
     })
@@ -200,6 +243,7 @@ export async function updateProductDetails(id: number, input: Partial<ProductInp
 
 export async function deleteProduct(id: number) {
   await db.delete(productIngredients).where(eq(productIngredients.productId, id)).execute();
+  await db.delete(productSalePackages).where(eq(productSalePackages.productId, id)).execute();
   await db.delete(products).where(eq(products.id, id)).execute();
 }
 
@@ -216,6 +260,8 @@ export async function listProductIngredientRows(productId: number) {
       ingredientYieldFactor: ingredients.yieldFactor,
       ingredientClassification: ingredients.classification,
       quantityUsed: productIngredients.quantityUsed,
+      usageMode: productIngredients.usageMode,
+      usageRatio: productIngredients.usageRatio,
       costType: productIngredients.costType,
     })
     .from(productIngredients)
@@ -231,6 +277,8 @@ export async function addProductIngredient(input: ProductIngredientInput) {
       productId: input.productId,
       ingredientId: input.ingredientId,
       quantityUsed: input.quantityUsed,
+      usageMode: input.usageMode,
+      usageRatio: input.usageRatio,
       costType: input.costType as any,
     })
     .execute();
@@ -245,6 +293,8 @@ export async function bulkAddProductIngredients(inputs: ProductIngredientInput[]
         productId: i.productId,
         ingredientId: i.ingredientId,
         quantityUsed: i.quantityUsed,
+        usageMode: i.usageMode,
+        usageRatio: i.usageRatio,
         costType: i.costType as any,
       })),
     )
@@ -261,6 +311,8 @@ export async function updateProductIngredient(
     .set({
       ingredientId: input.ingredientId,
       quantityUsed: input.quantityUsed,
+      usageMode: input.usageMode,
+      usageRatio: input.usageRatio,
       costType: input.costType,
     })
     .where(

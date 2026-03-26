@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { View, Text, Pressable, Modal, ScrollView, Animated, Dimensions } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { safeNavigate } from '../../../navigation/navigationService';
 
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 
@@ -15,7 +16,7 @@ type ProductActionModalProps = {
   onTrash: (id: number) => void;
   onRestore: (id: number) => void;
   onDeletePermanent: (id: number) => void;
-  navigation: any;
+
 };
 
 const COLORS = [
@@ -39,7 +40,7 @@ export function ProductActionModal({
   onTrash,
   onRestore,
   onDeletePermanent,
-  navigation,
+
 }: ProductActionModalProps) {
   const insets = useSafeAreaInsets();
   const [internalVisible, setInternalVisible] = useState(false);
@@ -123,7 +124,7 @@ export function ProductActionModal({
                 {/* ── Primary: Compose Resources ── */}
                 <Pressable
                   className="mb-3"
-                  onPress={() => { navigation.navigate('ProductAddIngredient', { productId: product.id }); onClose(); }}
+                  onPress={() => { safeNavigate('ProductAddIngredient', { productId: product.id }); onClose(); }}
                 >
                   <View className="bg-brand-900 h-16 rounded-[24px] flex-row items-center justify-center gap-3 shadow-lg border-[1.5px] border-brand-900">
                     <Ionicons name="layers" size={20} color="white" />
@@ -134,7 +135,7 @@ export function ProductActionModal({
                 {/* ── Secondary: Log Sales ── */}
                 <Pressable
                   className="mb-8"
-                  onPress={() => { navigation.navigate('SalesLogger', { productId: product.id }); onClose(); }}
+                  onPress={() => { safeNavigate('SalesLogger', { productId: product.id }); onClose(); }}
                 >
                   <View className="bg-brand-50 h-16 rounded-[24px] flex-row items-center justify-center gap-3 border-[1.5px] border-brand-100">
                     <Ionicons name="stats-chart-outline" size={20} color="#14532d" />
@@ -153,7 +154,7 @@ export function ProductActionModal({
                     {/* Quick Actions */}
                     <ActionChip
                       icon="create-outline"
-                      onPress={() => { navigation.navigate('ProductForm', { productId: product.id }); onClose(); }}
+                      onPress={() => { safeNavigate('ProductForm', { productId: product.id }); onClose(); }}
                     />
                     <ActionChip
                       icon={product.isPinned ? 'pin' : 'pin-outline'}
@@ -221,14 +222,22 @@ function ActionChip({
   return (
     <Pressable onPress={onPress}>
       <View
-        style={colorBg ? { backgroundColor: colorBg } : undefined}
-        className={`items-center justify-center h-14 w-14 rounded-full border-[1.5px] ${
+        style={[
+          {
+            alignItems: 'center',
+            justifyContent: 'center',
+            height: 56,
+            width: 56,
+            borderRadius: 28,
+            borderWidth: 1.5,
+          },
+          colorBg ? { backgroundColor: colorBg } : null,
           active 
-            ? colorBg ? 'border-brand-900 shadow-md' : 'bg-amber-50 border-amber-200 shadow-sm' 
+            ? (colorBg ? { borderColor: '#14532d', elevation: 4, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 4 } : { backgroundColor: '#fffbeb', borderColor: '#fef3c7', elevation: 2, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 2 })
             : isDestructive
-              ? 'bg-red-50 border-red-100'
-              : colorBg ? 'border-slate-100' : 'bg-brand-50 border-brand-100'
-        }`}
+              ? { backgroundColor: '#fef2f2', borderColor: '#fee2e2' }
+              : (colorBg ? { borderColor: '#f1f5f9' } : { backgroundColor: '#f0fdf4', borderColor: '#dcfce7' })
+        ]}
       >
         {icon && <Ionicons name={icon} size={22} color={active ? activeColor : isDestructive ? '#dc2626' : '#14532d'} />}
         {colorBg && active && <Ionicons name="checkmark" size={22} color="#14532d" />}

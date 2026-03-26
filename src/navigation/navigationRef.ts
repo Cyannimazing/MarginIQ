@@ -2,8 +2,3 @@ import { createNavigationContainerRef } from '@react-navigation/native';
 
 export const navigationRef = createNavigationContainerRef<any>();
 
-export function safeNavigate(name: string, params?: any) {
-  if (navigationRef.isReady()) {
-    navigationRef.navigate(name, params);
-  }
-}

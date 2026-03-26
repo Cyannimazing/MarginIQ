@@ -127,7 +127,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
         ),
         lastSalesLogType: (map[SETTINGS_KEYS.lastSalesLogType] as any) || DEFAULT_SETTINGS.lastSalesLogType,
         lastSalesInputType: (map[SETTINGS_KEYS.lastSalesInputType] as any) || DEFAULT_SETTINGS.lastSalesInputType,
-      };
+      } as AppSettings;
 
       set({ settings: hydrated, isLoading: false, isHydrated: true });
     } catch (error) {

@@ -4,25 +4,25 @@
     "slug": "marginiq",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/icon_new.png",
+    "icon": "./assets/ICON-MARGINIQ.png",
     "userInterfaceStyle": "light",
     "splash": {
-      "image": "./assets/splash_final_v3.png",
+      "image": "./assets/ICON-MARGINIQ.png",
       "resizeMode": "contain",
-      "backgroundColor": "#14532d"
+      "backgroundColor": "#052e16"
     },
     "ios": {
       "supportsTablet": true
     },
     "android": {
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
-        "foregroundImage": "./assets/android-icon-foreground.png",
-        "backgroundImage": "./assets/android-icon-background.png",
+        "foregroundImage": "./assets/ICON-MARGINIQ.png",
+        "backgroundColor": "#14532d",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
       "predictiveBackGestureEnabled": false,
-      "package": "com.cyann1730.marginiq"
+      "package": "com.cyann1730.marginiq",
+      "softwareKeyboardLayoutMode": "pan"
     },
     "web": {
       "favicon": "./assets/favicon.png"

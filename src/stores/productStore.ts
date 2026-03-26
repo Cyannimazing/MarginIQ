@@ -16,15 +16,20 @@ import {
   restoreProduct,
   listTrashProducts,
   listProductCostGroups,
+  listProductSalePackages,
+  createProductSalePackage,
+  deleteProductSalePackage,
 } from '../db/queries/products';
 import {
   Product,
   ProductCostGroup,
+  ProductSalePackage,
   ProductCostGroupInput,
   ProductInput,
   ProductIngredientRow,
   ProductIngredientInput,
   ProductPricingInput,
+  ProductSalePackageInput,
 } from '../features/products/types';
 
 interface ProductState {
@@ -32,6 +37,7 @@ interface ProductState {
   costGroups: ProductCostGroup[];
   trashProducts: Product[];
   productIngredients: ProductIngredientRow[];
+  productSalePackages: ProductSalePackage[];
   isLoading: boolean;
   error: string | null;
   loadProducts: () => Promise<void>;
@@ -53,6 +59,7 @@ interface ProductState {
   // Selectors
   getProductById: (id: number) => Product | undefined;
   getProductIngredients: (productId: number) => ProductIngredientRow[];
+  getProductSalePackages: (productId: number) => ProductSalePackage[];
   getProductCostBreakdown: (productId: number) => any;
   
   clearProductIngredients: () => void;
@@ -65,6 +72,10 @@ interface ProductState {
     input: Partial<ProductIngredientInput>
   ) => Promise<void>;
   removeIngredientFromProduct: (productId: number, rowId: number) => Promise<void>;
+
+  loadProductSalePackages: (productId: number) => Promise<void>;
+  addProductSalePackage: (input: ProductSalePackageInput) => Promise<number>;
+  deleteProductSalePackage: (id: number) => Promise<void>;
 }
 
 const getErrorMessage = (error: unknown) => {
@@ -77,6 +88,7 @@ export const useProductStore = create<ProductState>((set, get) => ({
   costGroups: [],
   trashProducts: [],
   productIngredients: [],
+  productSalePackages: [],
   isLoading: false,
   error: null,
 
@@ -120,7 +132,7 @@ export const useProductStore = create<ProductState>((set, get) => ({
     set({ isLoading: true, error: null });
     try {
       await updateProductCostGroup(id, input);
-      await get().loadCostGroups();
+      await get().loadProducts();
     } catch (error) {
       set({ isLoading: false, error: getErrorMessage(error) });
       throw error;
@@ -241,6 +253,10 @@ export const useProductStore = create<ProductState>((set, get) => ({
     return get().productIngredients.filter(pi => Number(pi.productId) === Number(productId));
   },
 
+  getProductSalePackages: (productId) => {
+    return get().productSalePackages.filter((p) => Number(p.productId) === Number(productId));
+  },
+
   getProductCostBreakdown: (productId) => {
     const product = get().getProductById(productId);
     if (!product) return { baseCost: 0, packaging: 0, overhead: 0, totalDirect: 0 };
@@ -258,6 +274,43 @@ export const useProductStore = create<ProductState>((set, get) => ({
       set({ productIngredients: rows as ProductIngredientRow[], isLoading: false });
     } catch (error) {
       set({ isLoading: false, error: getErrorMessage(error) });
+    }
+  },
+
+  loadProductSalePackages: async (productId) => {
+    set({ isLoading: true, error: null });
+    try {
+      const rows = await listProductSalePackages(productId);
+      set({ productSalePackages: rows as ProductSalePackage[], isLoading: false });
+    } catch (error) {
+      set({ isLoading: false, error: getErrorMessage(error) });
+    }
+  },
+
+  addProductSalePackage: async (input) => {
+    set({ isLoading: true, error: null });
+    try {
+      const id = await createProductSalePackage(input);
+      await get().loadProductSalePackages(input.productId);
+      return id;
+    } catch (error) {
+      set({ isLoading: false, error: getErrorMessage(error) });
+      throw error;
+    }
+  },
+
+  deleteProductSalePackage: async (id) => {
+    set({ isLoading: true, error: null });
+    try {
+      // Best effort: delete, then reload packages for the product that owned it.
+      const pkg = get().productSalePackages.find((p) => p.id === id);
+      await deleteProductSalePackage(id);
+      if (pkg) await get().loadProductSalePackages(pkg.productId);
+    } catch (error) {
+      set({ isLoading: false, error: getErrorMessage(error) });
+      throw error;
+    } finally {
+      set({ isLoading: false });
     }
   },
 
@@ -302,6 +355,16 @@ export const useProductStore = create<ProductState>((set, get) => ({
     try {
       await removeProductIngredient(rowId, productId);
       await get().loadProductIngredients(productId);
+      
+      // Auto-reset packaging quantity if no packaging items remain
+      const remainingPkg = get().getProductIngredients(productId).filter(pi => pi.costType === 'packaging');
+      if (remainingPkg.length === 0) {
+        const product = get().products.find(p => p.id === productId);
+        if (product && (product.unitsPerSale !== 1 || product.saleUnitLabel)) {
+           await updateProductDetails(productId, { unitsPerSale: 1, saleUnitLabel: '' });
+        }
+      }
+      
       await get().loadProducts();
     } catch (error) {
       set({ isLoading: false, error: getErrorMessage(error) });

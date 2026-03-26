@@ -9,9 +9,10 @@ type ExitConfirmModalProps = {
 };
 
 export function ExitConfirmModal({ visible, onClose, onConfirm }: ExitConfirmModalProps) {
+  if (!visible) return null;
   return (
     <Modal
-      visible={visible}
+      visible={true}
       transparent
       animationType="fade"
       onRequestClose={onClose}

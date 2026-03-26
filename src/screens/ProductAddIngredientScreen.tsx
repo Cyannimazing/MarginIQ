@@ -13,29 +13,36 @@ import { useIngredientStore } from '../stores/ingredientStore';
 import { useProductStore } from '../stores/productStore';
 import { useSettingsStore } from '../stores/settingsStore';
 import { formatMoney } from '../utils/currency';
+import { ProductIngredientInput } from '../features/products/types';
+import { normalizeUnitsPerSale } from '../utils/productEconomics';
 import { OptionChip } from '../components/ui/OptionChip';
 import { FormSection } from '../components/ui/FormSection';
 import { ActionModal } from '../components/ui/ActionModal';
+import { safeGoBack, safeNavigate } from '../navigation/navigationService';
 
 const addIngredientSchema = z.object({
   items: z.array(
     z.object({
       ingredientId: z.number().positive(),
       quantityUsed: z.string().trim().min(1, 'Required').refine(v => !isNaN(Number(v)) && Number(v) > 0, 'Must be positive'),
+      usageMode: z.enum(['per_piece', 'pieces_per_unit', 'per_batch']),
+      usageRatio: z.string().trim().min(1, 'Required').refine(v => !isNaN(Number(v)) && Number(v) >= 0, 'Must be 0 or more'),
+      costType: z.enum(COST_TYPES),
     })
   ).min(1, 'Select at least one resource'),
-  costType: z.enum(COST_TYPES),
+  unitsPerSale: z.string().trim().min(1, 'Required').refine(v => !isNaN(Number(v)) && Number(v) > 0, 'Must be positive'),
+  saleUnitLabel: z.string().trim(),
 });
 
 type AddIngredientValues = z.infer<typeof addIngredientSchema>;
 type Props = NativeStackScreenProps<RootStackParamList, 'ProductAddIngredient'>;
 const COST_TYPE_LABELS: Record<string, string> = {
-  ingredients: 'Ingredients',
+  ingredients: 'Raw Materials',
   material: 'Material',
   packaging: 'Packaging',
   labor: 'Labor',
-  utilities: 'Utilities (Batch)',
-  overhead: 'Overhead (Batch)',
+  utilities: 'Utilities (batch-variable)',
+  overhead: 'Overhead (batch-variable)',
   other: 'Other',
 };
 
@@ -54,7 +61,9 @@ export function ProductAddIngredientScreen({ route, navigation }: Props) {
   const productIngredients = getProductIngredients(pId);
   const loadProductIngredients = useProductStore((state) => state.loadProductIngredients);
   const product = useProductStore((state) => state.products.find(p => p.id === pId));
+  const editProduct = useProductStore((state) => state.editProduct);
   const currencyCode = useSettingsStore((state) => state.settings.currencyCode);
+
 
   const getTrueUnitCost = (pi: any) => {
     const qty = Math.max(Number(pi.ingredientQuantity) || 1, 0.00000001);
@@ -63,6 +72,29 @@ export function ProductAddIngredientScreen({ route, navigation }: Props) {
     const cost = (price / qty) / yieldFactor;
     return isFinite(cost) ? cost : 0;
   };
+
+  // Local state for batch size to avoid expensive store refreshes on every keystroke
+  const [localBatchSize, setLocalBatchSize] = useState(Number(product?.batchSize || 1));
+  const batchSizeNumber = useMemo(() => Math.max(localBatchSize, 1), [localBatchSize]);
+
+  // Cost per 1 piece based on current linked resources (does not include monthly overhead).
+  const perPieceTotalCost = useMemo(() => {
+    if (!product) return 0;
+    const baseCost = isFinite(Number(product.baseCost)) ? Number(product.baseCost) : 0;
+
+    const ingredientsTotal = productIngredients
+      .filter((pi) => pi.costType === 'ingredients')
+      .reduce((sum, pi) => sum + getTrueUnitCost(pi) * (Number(pi.quantityUsed) || 0), 0);
+
+    const otherTotal = productIngredients
+      .filter((pi) => pi.costType !== 'ingredients')
+      .reduce((sum, pi) => sum + getTrueUnitCost(pi) * (Number(pi.quantityUsed) || 0), 0);
+
+    const bTotalCost = ingredientsTotal + otherTotal + baseCost;
+    return isFinite(bTotalCost) ? bTotalCost / batchSizeNumber : 0;
+  }, [product, productIngredients, batchSizeNumber]);
+
+
 
   const [modalState, setModalState] = useState<{
     visible: boolean;
@@ -84,6 +116,7 @@ export function ProductAddIngredientScreen({ route, navigation }: Props) {
       onPrimary: () => setModalState(prev => ({ ...prev, visible: false })),
     });
   }, []);
+
 
   const showConfirm = useCallback((title: string, message: string, confirmText: string, onConfirm: () => void, isDestructive = false) => {
     setModalState({
@@ -111,8 +144,9 @@ export function ProductAddIngredientScreen({ route, navigation }: Props) {
   const activeInitialItems = localEditGroup?.items ?? initialItems;
 
   const [searchQuery, setSearchQuery] = useState('');
-  const [activeTag, setActiveTag] = useState<string | null>(null);
+
   const [visibleResourceCount, setVisibleResourceCount] = useState(5);
+  const [libraryTab, setLibraryTab] = useState<'raw' | 'packaging'>('raw');
   const [expandedCategories, setExpandedCategories] = useState<Set<string>>(new Set());
 
   const toggleCategory = useCallback((category: string) => {
@@ -148,58 +182,55 @@ export function ProductAddIngredientScreen({ route, navigation }: Props) {
     [ingredients, alreadyUsedIds]
   );
 
-  // Filtered by search + tag
-  const filteredIngredients = useMemo(() => {
+  // Filtered by search + classification + TAG
+  const rawMaterials = useMemo(() => {
     return availableIngredients.filter(i => {
       const matchesSearch = !searchQuery.trim() || i.name.toLowerCase().includes(searchQuery.toLowerCase().trim());
-      const matchesTag = !activeTag || (i as any).tag === activeTag;
-      return matchesSearch && matchesTag;
+      const isRaw = i.tag !== 'Packaging';
+      return matchesSearch && isRaw;
     });
-  }, [availableIngredients, searchQuery, activeTag]);
+  }, [availableIngredients, searchQuery]);
 
-  const availableTags = useMemo(() => {
-    const tags = new Set<string>();
-    availableIngredients.forEach((ingredient) => {
-      const tag = (ingredient as any).tag as string | undefined;
-      if (tag) tags.add(tag);
+  const packagingMaterials = useMemo(() => {
+    return availableIngredients.filter(i => {
+      const matchesSearch = !searchQuery.trim() || i.name.toLowerCase().includes(searchQuery.toLowerCase().trim());
+      const isPkg = i.tag === 'Packaging';
+      return matchesSearch && isPkg;
     });
-    return Array.from(tags).sort((a, b) => a.localeCompare(b));
-  }, [availableIngredients]);
+  }, [availableIngredients, searchQuery]);
 
-  const tagCounts = useMemo(() => {
-    const counts = new Map<string, number>();
-    availableIngredients.forEach((ingredient) => {
-      const tag = (ingredient as any).tag as string | undefined;
-      if (!tag) return;
-      counts.set(tag, (counts.get(tag) ?? 0) + 1);
-    });
-    return counts;
-  }, [availableIngredients]);
+
 
   useEffect(() => {
     setVisibleResourceCount(5);
-  }, [searchQuery, activeTag]);
-
-  useEffect(() => {
-    if (activeTag && !availableTags.includes(activeTag)) {
-      setActiveTag(null);
-    }
-  }, [activeTag, availableTags]);
+  }, [searchQuery]);
 
   const resourcePageSize = 5;
-  const visibleIngredients = useMemo(
-    () => filteredIngredients.slice(0, visibleResourceCount),
-    [filteredIngredients, visibleResourceCount]
+  const visibleRawMaterials = useMemo(
+    () => rawMaterials.slice(0, visibleResourceCount),
+    [rawMaterials, visibleResourceCount]
   );
-  const hiddenResourceCount = Math.max(filteredIngredients.length - visibleIngredients.length, 0);
-  const nextShowCount = Math.min(resourcePageSize, hiddenResourceCount);
+  const hiddenRawCount = Math.max(rawMaterials.length - visibleRawMaterials.length, 0);
+  const nextShowCount = Math.min(resourcePageSize, hiddenRawCount);
 
   const buildInitialItems = () => {
     if (initialItems && initialItems.length > 0) {
-      return initialItems.map(i => ({ ingredientId: i.ingredientId, quantityUsed: String(i.quantityUsed) }));
+      return initialItems.map((i: any) => ({ 
+        ingredientId: i.ingredientId, 
+        quantityUsed: String(i.quantityUsed),
+        usageMode: i.usageMode || 'per_batch',
+        usageRatio: String(i.usageRatio || i.quantityUsed || '0'),
+        costType: i.costType || 'ingredients'
+      }));
     }
     if (editLinkId && initialIngredientId) {
-      return [{ ingredientId: initialIngredientId, quantityUsed: String(initialQuantity || '1') }];
+      return [{ 
+        ingredientId: initialIngredientId, 
+        quantityUsed: String(initialQuantity || '0'),
+        usageMode: 'per_batch',
+        usageRatio: String(initialQuantity || '0'),
+        costType: initialCostType || 'ingredients'
+      }];
     }
     return [];
   };
@@ -207,7 +238,7 @@ export function ProductAddIngredientScreen({ route, navigation }: Props) {
   const {
     control,
     setValue,
-    handleSubmit,
+    getValues,
     watch,
     reset,
     formState: { errors, isSubmitting },
@@ -215,27 +246,105 @@ export function ProductAddIngredientScreen({ route, navigation }: Props) {
     resolver: zodResolver(addIngredientSchema),
     defaultValues: {
       items: buildInitialItems(),
-      costType: (initialCostType as any) ?? 'ingredients',
+      unitsPerSale: String(product?.unitsPerSale || 1),
+      saleUnitLabel: product?.saleUnitLabel || '',
     },
   });
 
-  // Force reset whenever params change
+  // Force reset whenever params/product change
   useEffect(() => {
     reset({
       items: buildInitialItems(),
-      costType: (initialCostType as any) ?? 'ingredients',
+      unitsPerSale: String(product?.unitsPerSale || 1),
+      saleUnitLabel: product?.saleUnitLabel || '',
     });
-  }, [productId, editLinkId, initialIngredientId, initialQuantity, initialCostType, initialItems, reset]);
+  }, [productId, editLinkId, initialIngredientId, initialQuantity, initialCostType, initialItems, product, reset]);
 
-  useEffect(() => {
-    void loadIngredients(); // load global library
+  // Initial load
+  React.useEffect(() => {
+    void loadIngredients();
     void loadProductIngredients(productId);
   }, [loadIngredients, loadProductIngredients, productId]);
 
-  const selectedItems = watch('items') || [];
-  const selectedCostType = watch('costType');
+  // Reload after returning from IngredientFormScreen
+  React.useEffect(() => {
+    const unsub = navigation.addListener('transitionEnd', () => {
+      void loadIngredients();
+      void loadProductIngredients(productId);
+    });
+    return unsub;
+  }, [navigation, loadIngredients, loadProductIngredients, productId]);
 
-  const handleToggleIngredient = (id: number) => {
+  const selectedItems = watch('items') || [];
+  const tabSelectedCount = libraryTab === 'packaging'
+    ? selectedItems.filter(i => i.costType === 'packaging').length
+    : selectedItems.filter(i => i.costType !== 'packaging').length;
+  const packagingSelected = useMemo(() => selectedItems.filter(i => i.costType === 'packaging'), [selectedItems]);
+  const hasMultiplePackaging = packagingSelected.length >= 2;
+
+  const [unifiedPkgValue, setUnifiedPkgValue] = useState(String(product?.unitsPerSale || 1));
+  
+
+  // Batch Helper States
+  const [helperShow, setHelperShow] = useState(false);
+  const [helperUnits, setHelperUnits] = useState(String(product?.unitsPerSale || 1));
+  const [helperBatches, setHelperBatches] = useState(String(Math.round(batchSizeNumber / (Number(product?.unitsPerSale) || 1))));
+
+  const linkedPackagingCount = useMemo(() => 
+    productIngredients.filter(pi => pi.costType === 'packaging').length, 
+  [productIngredients]);
+
+  // Auto-sync unifiedPkgValue and helper states if all selected packaging have the same deduced pieces
+  useEffect(() => {
+    if (packagingSelected.length > 0 && batchSizeNumber > 0) {
+      const pieces = packagingSelected
+        .filter(item => item.usageMode === 'pieces_per_unit')
+        .map(item => {
+          const qty = Number(item.quantityUsed) || 0;
+          return qty > 0 ? Math.round((batchSizeNumber / qty) * 1000) / 1000 : 0;
+        });
+      
+      if (pieces.length > 0) {
+        const allSame = pieces.every(p => p > 0 && p === pieces[0]);
+        if (allSame) {
+          setUnifiedPkgValue(String(pieces[0]));
+          setHelperUnits(String(pieces[0]));
+          setHelperBatches(String(Math.round(batchSizeNumber / pieces[0])));
+        }
+      }
+    } else if (batchSizeNumber > 0) {
+       // Also sync if no packaging selected
+       const currentUps = Number(watch('unitsPerSale')) || 1;
+       
+       // CRITICAL: If zero packaging is selected AND zero packaging is linked, reset UPS to 1
+       if (packagingSelected.length === 0 && linkedPackagingCount === 0 && currentUps !== 1) {
+         setValue('unitsPerSale', '1');
+         setUnifiedPkgValue('1');
+       }
+       
+       setHelperUnits(String(watch('unitsPerSale') || 1));
+       setHelperBatches(String(Math.round(batchSizeNumber / (Number(watch('unitsPerSale')) || 1))));
+    }
+  }, [packagingSelected.length, linkedPackagingCount, batchSizeNumber, product?.unitsPerSale, watch('unitsPerSale')]);
+
+  const currentPackagingCost = useMemo(() => {
+    return selectedItems
+      .filter(item => item.costType === 'packaging')
+      .reduce((sum, item) => {
+        const ing = ingredients.find(i => i.id === item.ingredientId);
+        if (!ing) return sum;
+        // Adapted getTrueUnitCost for library ingredient
+        const refQty = Math.max(Number(ing.quantity) || 1, 0.00000001);
+        const yf = Math.max(Number(ing.yieldFactor) || 1, 0.00000001);
+        const price = Number(ing.pricePerUnit) || 0;
+        const uCost = (price / refQty) / yf;
+        
+        const qtyUsed = Number(item.quantityUsed) || 0;
+        return sum + (qtyUsed * uCost);
+      }, 0);
+  }, [selectedItems, ingredients]);
+
+  const handleToggleIngredient = (id: number, costType: "ingredients" | "packaging" = 'ingredients') => {
     const index = selectedItems.findIndex(i => i.ingredientId === id);
     if (index > -1) {
       if (editLinkId && selectedItems.length === 1) {
@@ -246,15 +355,53 @@ export function ProductAddIngredientScreen({ route, navigation }: Props) {
       setValue('items', selectedItems.filter((_, idx) => idx !== index), { shouldValidate: true });
     } else {
       const ingredient = ingredients.find(i => i.id === id);
+      let initialQty = String(ingredient?.quantity ?? (ingredient?.classification === 'fixed' ? '1' : '0'));
+      let initialRatio = initialQty;
+      let initialMode: 'per_piece' | 'pieces_per_unit' | 'per_batch' = 'per_batch';
+      
+      if (costType === 'packaging' && unifiedPkgValue && Number(unifiedPkgValue) > 0) {
+        initialMode = 'pieces_per_unit';
+        initialRatio = unifiedPkgValue;
+        initialQty = String(batchSizeNumber / Number(unifiedPkgValue));
+      }
+
       setValue('items', [...selectedItems, { 
         ingredientId: id,
-        quantityUsed: String(ingredient?.quantity ?? (ingredient?.classification === 'fixed' ? '1' : '')),
+        quantityUsed: initialQty,
+        usageMode: initialMode,
+        usageRatio: initialRatio,
+        costType,
       }], { shouldValidate: true });
     }
   };
 
+  const getCalculatedQuantity = (batchSize: number, mode: 'per_piece' | 'pieces_per_unit' | 'per_batch', ratio: number) => {
+    if (mode === 'per_piece') return String(batchSize * ratio);
+    if (mode === 'pieces_per_unit') return ratio > 0 ? String(batchSize / ratio) : '0';
+    return String(ratio);
+  };
+
   const onSubmit = async (values: AddIngredientValues, stay: boolean = false) => {
     try {
+      // Only process items for the active tab; preserve the other tab's selections
+      const isPackagingTab = libraryTab === 'packaging';
+      const tabItems = values.items.filter(i =>
+        isPackagingTab ? i.costType === 'packaging' : i.costType !== 'packaging'
+      );
+      const otherTabItems = values.items.filter(i =>
+        isPackagingTab ? i.costType !== 'packaging' : i.costType === 'packaging'
+      );
+      values = { ...values, items: tabItems };
+
+      // Save product-level packaging details first
+      if (product) {
+        await editProduct(pId, {
+          ...product,
+          unitsPerSale: Number(values.unitsPerSale),
+          saleUnitLabel: values.saleUnitLabel.trim(),
+          batchSize: localBatchSize
+        } as any);
+      }
       if (activeEditLinkId && activeInitialItems && activeInitialItems.length > 0) {
         // Bulk Edit Mode
         const submittedIds = new Set(values.items.map(i => i.ingredientId));
@@ -268,6 +415,7 @@ export function ProductAddIngredientScreen({ route, navigation }: Props) {
 
         // 2. Prepare Updates and New Items
         const newItems: any[] = [];
+        // Update logic: we now use item-level costTypes
         for (const item of values.items) {
           const originalLink = activeInitialItems.find(i => i.ingredientId === item.ingredientId);
           const finalQty = Math.max(Number(item.quantityUsed) || 1, 0.00001);
@@ -276,14 +424,18 @@ export function ProductAddIngredientScreen({ route, navigation }: Props) {
             await editProductIngredient(pId, originalLink.linkId, {
               ingredientId: item.ingredientId,
               quantityUsed: finalQty,
-              costType: values.costType,
+              usageMode: item.usageMode,
+              usageRatio: Number(item.usageRatio) || 0,
+              costType: item.costType,
             });
           } else {
             newItems.push({
               productId: pId,
               ingredientId: item.ingredientId,
               quantityUsed: finalQty,
-              costType: values.costType,
+              usageMode: item.usageMode,
+              usageRatio: Number(item.usageRatio) || 0,
+              costType: item.costType,
             });
           }
         }
@@ -299,7 +451,9 @@ export function ProductAddIngredientScreen({ route, navigation }: Props) {
         await editProductIngredient(pId, activeEditLinkId!, {
           ingredientId: updateItem.ingredientId,
           quantityUsed: finalQty,
-          costType: values.costType,
+          usageMode: updateItem.usageMode,
+          usageRatio: Number(updateItem.usageRatio) || 0,
+          costType: updateItem.costType,
         });
 
         const extraItems: any[] = [];
@@ -310,25 +464,36 @@ export function ProductAddIngredientScreen({ route, navigation }: Props) {
             productId: pId,
             ingredientId: extra.ingredientId,
             quantityUsed: Math.max(Number(extra.quantityUsed) || 1, 0.00001),
-            costType: values.costType,
+            costType: extra.costType,
           });
         }
         if (extraItems.length > 0) await bulkAddIngredientsToProduct(extraItems);
 
       } else {
         // Pure Batch Add mode
-        const toAdd = values.items.map(item => ({
+        const toAdd: ProductIngredientInput[] = values.items.map(item => ({
           productId: pId,
           ingredientId: item.ingredientId,
-          quantityUsed: Math.max(Number(item.quantityUsed) || 1, 0.00001),
-          costType: values.costType,
+          quantityUsed: Math.max(Number(item.quantityUsed) || 0, 0),
+          usageMode: item.usageMode,
+          usageRatio: Number(item.usageRatio) || 0,
+          costType: item.costType,
         }));
         await bulkAddIngredientsToProduct(toAdd);
       }
       
       setLocalEditGroup(null);
-      reset({ items: [], costType: 'ingredients' });
-      if (!stay) navigation.goBack();
+      reset({
+        items: otherTabItems,
+        unitsPerSale: String(Number(values.unitsPerSale) || product?.unitsPerSale || 1),
+        saleUnitLabel: values.saleUnitLabel ?? product?.saleUnitLabel ?? '',
+      });
+      setSearchQuery('');
+      if (libraryTab === 'raw') {
+        setLibraryTab('packaging');
+      } else {
+        safeGoBack();
+      }
     } catch (err: any) {
       console.error(err);
       showAlert('Error', `Unable to process resource links: ${err?.message || 'Unknown error'}`);
@@ -337,19 +502,36 @@ export function ProductAddIngredientScreen({ route, navigation }: Props) {
 
   if (!ingredients.length && !productIngredients.length) {
     return (
-      <View className="flex-1 items-center bg-brand-50/20 px-8 pt-24">
-        <View className="h-20 w-20 rounded-full bg-brand-50 items-center justify-center mb-6">
-           <Ionicons name="cube-outline" size={40} color="#bbf7d0" />
+      <View style={{ flex: 1, alignItems: 'center', backgroundColor: 'rgba(20, 83, 45, 0.01)', paddingHorizontal: 32, paddingTop: 96 }}>
+        <View style={{ height: 80, width: 80, borderRadius: 40, backgroundColor: '#f0fdf4', alignItems: 'center', justifyContent: 'center', marginBottom: 24 }}>
+           <Ionicons name="cube-outline" size={40} color="#86efac" />
         </View>
-        <Text className="text-center text-lg font-black text-brand-900 mb-2">Resource Library Empty</Text>
-        <Text className="text-center text-xs text-brand-400 font-medium leading-5 mb-8">
+        <Text style={{ textAlign: 'center', fontSize: 18, fontWeight: '900', color: '#1e293b', marginBottom: 8 }}>Resource Library Empty</Text>
+        <Text style={{ textAlign: 'center', fontSize: 12, color: '#94a3b8', fontWeight: '500', lineHeight: 20, marginBottom: 32 }}>
           You need to add resources to your library before you can link them to business compositions.
         </Text>
         <Pressable
-          onPress={() => navigation.navigate('IngredientForm', { productId })}
+          onPress={() => safeNavigate('IngredientForm', { productId })}
+          style={{ marginTop: 20 }}
         >
-          <View className="rounded-[32px] bg-brand-900 px-8 py-4 shadow-lg shadow-brand-900/20">
-            <Text className="font-black text-white text-xs tracking-widest uppercase">Create Resource</Text>
+          <View style={{
+            borderRadius: 32,
+            backgroundColor: '#14532d',
+            paddingHorizontal: 32,
+            paddingVertical: 16,
+            shadowColor: '#14532d',
+            shadowOffset: { width: 0, height: 4 },
+            shadowOpacity: 0.2,
+            shadowRadius: 8,
+            elevation: 4,
+          }}>
+            <Text style={{
+              fontWeight: '900',
+              color: '#ffffff',
+              fontSize: 12,
+              letterSpacing: 2,
+              textTransform: 'uppercase',
+            }}>Create Resource</Text>
           </View>
         </Pressable>
       </View>
@@ -357,38 +539,131 @@ export function ProductAddIngredientScreen({ route, navigation }: Props) {
   }
 
   return (
-    <View className="flex-1 bg-white">
+    <View style={{ flex: 1, backgroundColor: '#ffffff' }}>
       <KeyboardAvoidingView
         style={{ flex: 1 }}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
-        <ScrollView className="flex-1 px-6" keyboardShouldPersistTaps="handled">
+        <ScrollView 
+          style={{ flex: 1, paddingHorizontal: 24 }} 
+          keyboardShouldPersistTaps="handled"
+          contentContainerStyle={{ paddingBottom: selectedItems.length > 0 ? Math.max(insets.bottom, 120) : Math.max(insets.bottom, 40) }}
+        >
           {/* ── Product Context Header ── */}
-          <View className="mt-6 mb-5 rounded-[24px] bg-brand-900 px-5 py-5">
-            <Text className="text-[8px] font-black text-brand-500 uppercase tracking-[4px] mb-1">Composing Resources For</Text>
-            <Text className="text-2xl font-black text-white leading-tight tracking-tighter">{product?.name || 'Product'}</Text>
-            <View className="flex-row items-center mt-2">
-              <View className="bg-white/10 px-3 py-1 rounded-full border border-white/20">
-                <Text className="text-[10px] font-black text-white/80 uppercase tracking-widest">{product?.category || 'General'}</Text>
+          <View style={{ marginTop: 24, marginBottom: 20, borderRadius: 24, backgroundColor: '#14532d', paddingHorizontal: 20, paddingVertical: 20 }}>
+            <Text style={{ fontSize: 8, fontWeight: '900', color: '#4ade80', textTransform: 'uppercase', letterSpacing: 4, marginBottom: 4 }}>Composing Resources For</Text>
+            <Text style={{ fontSize: 24, fontWeight: '900', color: '#ffffff', letterSpacing: -1 }}>{product?.name || 'Product'}</Text>
+            <View style={{ marginTop: 8 }}>
+              <View style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                backgroundColor: 'rgba(255, 255, 255, 0.15)',
+                paddingHorizontal: 12,
+                paddingVertical: 6,
+                borderRadius: 12,
+                borderWidth: 1,
+                borderColor: 'rgba(255, 255, 255, 0.2)',
+              }}>
+                <Ionicons name="layers" size={12} color="#4ade80" style={{ marginRight: 6 }} />
+                <Text style={{ fontSize: 12, fontWeight: '900', color: '#ffffff', textTransform: 'uppercase', letterSpacing: 1 }}>Total: {batchSizeNumber} Pieces</Text>
               </View>
-              {selectedItems.length > 0 && (
-                <View className="ml-2 bg-emerald-500/20 px-3 py-1 rounded-full border border-emerald-500/30">
-                  <Text className="text-[10px] font-black text-emerald-400 uppercase tracking-widest">{selectedItems.length} selected</Text>
+            </View>
+
+            <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 8 }}>
+              <View style={{ backgroundColor: 'rgba(255, 255, 255, 0.15)', paddingHorizontal: 12, paddingVertical: 4, borderRadius: 100, borderWidth: 1, borderColor: 'rgba(255, 255, 255, 0.2)' }}>
+                <Text style={{ fontSize: 10, fontWeight: '900', color: '#ffffff', textTransform: 'uppercase', letterSpacing: 1 }}>{product?.category || 'General'}</Text>
+              </View>
+              {tabSelectedCount > 0 && (
+                <View style={{ marginLeft: 8, backgroundColor: 'rgba(74, 222, 128, 0.2)', paddingHorizontal: 12, paddingVertical: 4, borderRadius: 100, borderWidth: 1, borderColor: 'rgba(74, 222, 128, 0.3)' }}>
+                  <Text style={{ fontSize: 10, fontWeight: '900', color: '#4ade80', textTransform: 'uppercase', letterSpacing: 1 }}>{tabSelectedCount} selected</Text>
                 </View>
               )}
             </View>
           </View>
 
-          <FormSection title="Select from Your Library" icon="layers">
+
+          <FormSection title="Library Selection" icon="layers">
+            {/* View Switcher Tabs */}
+            <View style={{
+              flexDirection: 'row',
+              backgroundColor: '#f8fafc',
+              borderRadius: 16,
+              padding: 4,
+              marginBottom: 16,
+              borderWidth: 1,
+              borderColor: '#f1f5f9',
+            }}>
+              <Pressable
+                onPress={() => setLibraryTab('raw')}
+                style={{
+                  flex: 1,
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  paddingVertical: 10,
+                  borderRadius: 12,
+                  backgroundColor: libraryTab === 'raw' ? '#14532d' : 'transparent',
+                }}
+              >
+                <Ionicons name="leaf" size={14} color={libraryTab === 'raw' ? 'white' : '#1e293b'} />
+                <Text style={{
+                  marginLeft: 8,
+                  fontSize: 10,
+                  fontWeight: '900',
+                  textTransform: 'uppercase',
+                  letterSpacing: 1,
+                  color: libraryTab === 'raw' ? 'white' : '#1e293b',
+                }}>Raw Materials</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => setLibraryTab('packaging')}
+                style={{
+                  flex: 1,
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  paddingVertical: 10,
+                  borderRadius: 12,
+                  backgroundColor: libraryTab === 'packaging' ? '#14532d' : 'transparent',
+                }}
+              >
+                <Ionicons name="cube" size={14} color={libraryTab === 'packaging' ? 'white' : '#1e293b'} />
+                <Text style={{
+                  marginLeft: 8,
+                  fontSize: 10,
+                  fontWeight: '900',
+                  textTransform: 'uppercase',
+                  letterSpacing: 1,
+                  color: libraryTab === 'packaging' ? 'white' : '#1e293b',
+                }}>Packaging</Text>
+              </Pressable>
+            </View>
+
             {/* Search bar */}
-            <View className="flex-row items-center bg-brand-50/50 rounded-[20px] border border-brand-100 px-4 mb-3 h-11">
+            <View style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              backgroundColor: 'rgba(240, 253, 244, 0.5)',
+              borderRadius: 20,
+              borderWidth: 1,
+              borderColor: '#f1f5f9',
+              paddingHorizontal: 16,
+              marginBottom: 12,
+              height: 44,
+            }}>
               <Ionicons name="search" size={16} color="#9ca3af" />
               <TextInput
                 value={searchQuery}
                 onChangeText={setSearchQuery}
                 placeholder="Search resources..."
                 placeholderTextColor="#9ca3af"
-                className="flex-1 ml-2 text-sm text-brand-900 font-semibold"
+                style={{
+                  flex: 1,
+                  marginLeft: 8,
+                  fontSize: 14,
+                  color: '#1e293b',
+                  fontWeight: '600',
+                }}
               />
               {searchQuery.length > 0 && (
                 <Pressable onPress={() => setSearchQuery('')} hitSlop={8}>
@@ -397,120 +672,231 @@ export function ProductAddIngredientScreen({ route, navigation }: Props) {
               )}
             </View>
 
-            {/* Tag filter chips */}
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              className="mb-3"
-              contentContainerStyle={{ paddingRight: 4 }}
-            >
-              <View className="flex-row gap-2">
-                <OptionChip
-                  label={`All (${availableIngredients.length})`}
-                  selected={activeTag === null}
-                  onPress={() => setActiveTag(null)}
-                />
-                {availableTags.map(tag => (
-                  <OptionChip
-                    key={tag}
-                    label={`${tag} (${tagCounts.get(tag) ?? 0})`}
-                    selected={activeTag === tag}
-                    onPress={() => setActiveTag(activeTag === tag ? null : tag)}
-                  />
-                ))}
-              </View>
-            </ScrollView>
+            {libraryTab === 'raw' ? (
+              /* ── Section A: Raw Materials ── */
+              <View style={{ marginBottom: 8 }}>
+                <View style={{ gap: 8 }}>
+                  {rawMaterials.length === 0 && (
+                    <Text style={{ fontSize: 11, fontWeight: '600', color: '#94a3b8', paddingHorizontal: 8, paddingVertical: 8 }}>
+                      {searchQuery ? 'No materials match filter.' : 'No materials found.'}
+                    </Text>
+                  )}
 
-            {selectedItems.length > 0 && (
-              <View className="mb-3 rounded-2xl border border-emerald-200 bg-emerald-50 px-3 py-2">
-                <Text className="text-[10px] font-black text-emerald-700 uppercase tracking-widest">
-                  {selectedItems.length} resource{selectedItems.length > 1 ? 's' : ''} selected
-                </Text>
+                  {visibleRawMaterials.map((ingredient) => {
+                    const isSelected = selectedItems.some(i => i.ingredientId === ingredient.id && i.costType !== 'packaging');
+                    const refQty = Math.max(Number((ingredient as any).quantity ?? 1), 0.00000001);
+                    const yieldFactor = Math.max(Number((ingredient as any).yieldFactor ?? 1), 0.00000001);
+                    const unitCost = ((Number((ingredient as any).pricePerUnit) || 0) / refQty) / yieldFactor;
+
+                    return (
+                      <Pressable
+                        key={ingredient.id}
+                        onPress={() => handleToggleIngredient(ingredient.id, 'ingredients')}
+                      >
+                        <View style={{
+                          flexDirection: 'row',
+                          alignItems: 'center',
+                          borderRadius: 16,
+                          borderWidth: 1,
+                          paddingHorizontal: 16,
+                          paddingVertical: 12,
+                          borderColor: isSelected ? '#14532d' : '#f1f5f9',
+                          backgroundColor: isSelected ? '#14532d' : '#ffffff',
+                        }}>
+                          <View style={{ flex: 1, paddingRight: 12 }}>
+                            <Text
+                              style={{
+                                fontSize: 11,
+                                fontWeight: '900',
+                                textTransform: 'uppercase',
+                                letterSpacing: 1,
+                                color: isSelected ? '#ffffff' : '#1e293b',
+                              }}
+                              numberOfLines={1}
+                            >
+                              {ingredient.name}
+                            </Text>
+                            <View style={{ marginTop: 4, flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
+                              <Text style={{ fontSize: 10, fontWeight: '600', color: isSelected ? 'rgba(255,255,255,0.8)' : '#94a3b8' }}>
+                                {formatMoney(unitCost, currencyCode, 3)} / {ingredient.unit}
+                              </Text>
+                            </View>
+                          </View>
+
+                          <View style={{
+                            height: 24,
+                            width: 24,
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            borderRadius: 12,
+                            borderWidth: 1,
+                            borderColor: isSelected ? '#4ade80' : '#e2e8f0',
+                            backgroundColor: isSelected ? '#22c55e' : '#f8fafc',
+                          }}>
+                            {isSelected && <Ionicons name="checkmark" size={14} color="#ffffff" />}
+                          </View>
+                        </View>
+                      </Pressable>
+                    );
+                  })}
+
+                  {hiddenRawCount > 0 && (
+                    <Pressable
+                      onPress={() =>
+                        setVisibleResourceCount((prev) => Math.min(prev + resourcePageSize, rawMaterials.length))
+                      }
+                      style={{ alignSelf: 'flex-start', marginTop: 4 }}
+                    >
+                      <View style={{
+                        borderRadius: 100,
+                        borderWidth: 1,
+                        borderColor: '#f1f5f9',
+                        backgroundColor: '#f8fafc',
+                        paddingHorizontal: 12,
+                        paddingVertical: 6,
+                      }}>
+                        <Text style={{
+                          fontSize: 10,
+                          fontWeight: '900',
+                          textTransform: 'uppercase',
+                          letterSpacing: 1,
+                          color: '#1e293b',
+                        }}>
+                          {`Show (${nextShowCount}) more Materials`}
+                        </Text>
+                      </View>
+                    </Pressable>
+                  )}
+                </View>
+              </View>
+            ) : (
+              /* ── Section B: Consumables & Packaging ── */
+              <View style={{ marginBottom: 8 }}>
+                <View style={{ gap: 8 }}>
+                  {packagingMaterials.length === 0 && (
+                    <Text style={{ fontSize: 11, fontWeight: '600', color: '#94a3b8', paddingHorizontal: 8, paddingVertical: 8 }}>
+                      {searchQuery ? 'No packaging match search.' : 'No packaging resources available.'}
+                    </Text>
+                  )}
+
+                  {packagingMaterials.slice(0, 8).map((ingredient) => {
+                    const isSelected = selectedItems.some(i => i.ingredientId === ingredient.id && i.costType === 'packaging');
+                    const uCost = ((Number(ingredient.pricePerUnit) || 0) / Math.max(Number(ingredient.quantity || 1), 0.0000001));
+
+                    return (
+                      <Pressable
+                        key={ingredient.id}
+                        onPress={() => handleToggleIngredient(ingredient.id, 'packaging')}
+                      >
+                        <View style={{
+                          flexDirection: 'row',
+                          alignItems: 'center',
+                          borderRadius: 16,
+                          borderWidth: 1,
+                          paddingHorizontal: 16,
+                          paddingVertical: 12,
+                          borderColor: isSelected ? '#14532d' : '#f1f5f9',
+                          backgroundColor: isSelected ? '#14532d' : '#ffffff',
+                        }}>
+                          <View style={{ flex: 1, paddingRight: 12 }}>
+                            <Text
+                              style={{
+                                fontSize: 11,
+                                fontWeight: '900',
+                                textTransform: 'uppercase',
+                                letterSpacing: 1,
+                                color: isSelected ? '#ffffff' : '#1e293b',
+                              }}
+                              numberOfLines={1}
+                            >
+                              {ingredient.name}
+                            </Text>
+                            <Text style={{
+                              fontSize: 10,
+                              fontWeight: '600',
+                              marginTop: 4,
+                              color: isSelected ? 'rgba(255,255,255,0.8)' : '#94a3b8',
+                            }}>
+                               {formatMoney(uCost, currencyCode, 3)} / {ingredient.unit}
+                            </Text>
+                          </View>
+
+                          <View style={{
+                            height: 24,
+                            width: 24,
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            borderRadius: 12,
+                            borderWidth: 1,
+                            borderColor: isSelected ? '#4ade80' : '#e2e8f0',
+                            backgroundColor: isSelected ? '#22c55e' : '#f8fafc',
+                          }}>
+                            {isSelected && <Ionicons name="checkmark" size={14} color="#ffffff" />}
+                          </View>
+                        </View>
+                      </Pressable>
+                    );
+                  })}
+                </View>
               </View>
             )}
 
-            <View className="gap-2">
-              {filteredIngredients.length === 0 && (
-                <Text className="text-[11px] font-semibold text-brand-400 px-1 py-2">
-                  {searchQuery || activeTag ? 'No resources match your filter.' : 'No resources available.'}
-                </Text>
-              )}
-
-              {visibleIngredients.map((ingredient) => {
-                const isSelected = selectedItems.some(i => i.ingredientId === ingredient.id);
-                const refQty = Math.max(Number((ingredient as any).quantity ?? 1), 0.00000001);
-                const yieldFactor = Math.max(Number((ingredient as any).yieldFactor ?? 1), 0.00000001);
-                const unitCost = ((Number((ingredient as any).pricePerUnit) || 0) / refQty) / yieldFactor;
-                const ingredientTag = (ingredient as any).tag as string | undefined;
-
-                return (
-                  <Pressable
-                    key={ingredient.id}
-                    onPress={() => handleToggleIngredient(ingredient.id)}
-                    className="active:opacity-80"
-                  >
-                    <View className={`flex-row items-center rounded-2xl border px-4 py-3 ${isSelected ? 'border-brand-900 bg-brand-900' : 'border-brand-100 bg-white'}`}>
-                      <View className="flex-1 pr-3">
-                        <Text
-                          className={`text-[11px] font-black uppercase tracking-widest ${isSelected ? 'text-white' : 'text-brand-900'}`}
-                          numberOfLines={1}
-                        >
-                          {ingredient.name}
-                        </Text>
-                        <View className="mt-1 flex-row flex-wrap items-center gap-2">
-                          {ingredientTag && (
-                            <View className={`rounded-full border px-2 py-0.5 ${isSelected ? 'border-white/30 bg-white/10' : 'border-brand-200 bg-brand-50'}`}>
-                              <Text className={`text-[9px] font-black uppercase tracking-widest ${isSelected ? 'text-white/90' : 'text-brand-700'}`}>
-                                {ingredientTag}
-                              </Text>
-                            </View>
-                          )}
-                          <Text className={`text-[10px] font-semibold ${isSelected ? 'text-white/80' : 'text-brand-400'}`}>
-                            {formatMoney(unitCost, currencyCode, 3)} / {ingredient.unit}
-                          </Text>
-                        </View>
-                      </View>
-
-                      <View className={`h-6 w-6 items-center justify-center rounded-full border ${isSelected ? 'border-emerald-400 bg-emerald-500' : 'border-brand-200 bg-brand-50'}`}>
-                        {isSelected && <Ionicons name="checkmark" size={14} color="#ffffff" />}
-                      </View>
-                    </View>
-                  </Pressable>
-                );
-              })}
-
-              {hiddenResourceCount > 0 && (
-                <Pressable
-                  onPress={() =>
-                    setVisibleResourceCount((prev) => Math.min(prev + resourcePageSize, filteredIngredients.length))
-                  }
-                  className="self-start active:opacity-70"
-                >
-                  <View className="rounded-full border border-brand-100 bg-brand-50 px-3 py-1.5">
-                    <Text className="text-[10px] font-black uppercase tracking-widest text-brand-900">
-                      {`Show (${nextShowCount})`}
-                    </Text>
-                  </View>
-                </Pressable>
-              )}
-
-              <Pressable
-                onPress={() => navigation.navigate('IngredientForm', { productId })}
-                className="mt-1 self-start active:opacity-70"
+            {/* Add New Quick Shortcut */}
+            <Pressable
+                onPress={() => safeNavigate('IngredientForm', { 
+                  productId, 
+                  prefillTag: libraryTab === 'packaging' ? 'Packaging' : 'Raw Material' 
+                })}
+                style={{ marginTop: 4, alignSelf: 'flex-start' }}
               >
-                <View className="flex-row items-center rounded-full border border-dashed border-brand-200 bg-brand-50 px-4 py-2">
+                <View style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  borderRadius: 100,
+                  borderWidth: 1,
+                  borderStyle: 'dashed',
+                  borderColor: '#e2e8f0',
+                  backgroundColor: '#f8fafc',
+                  paddingHorizontal: 16,
+                  paddingVertical: 8,
+                }}>
                   <Ionicons name="add-circle" size={14} color="#166534" />
-                  <Text className="ml-1 text-[10px] font-black text-brand-900 uppercase tracking-widest">New Resource</Text>
+                  <Text style={{
+                    marginLeft: 4,
+                    fontSize: 10,
+                    fontWeight: '900',
+                    textTransform: 'uppercase',
+                    letterSpacing: 1,
+                    color: '#14532d',
+                  }}>New Resource</Text>
                 </View>
               </Pressable>
-            </View>
-            {errors.items && !selectedItems.length && <Text className="mt-2 text-[10px] text-red-500 font-bold px-1">{errors.items.message}</Text>}
+
+            {errors.items && !selectedItems.length && (
+              <Text style={{
+                marginTop: 16,
+                fontSize: 10,
+                color: '#ef4444',
+                fontWeight: '700',
+                paddingHorizontal: 4,
+              }}>
+                {errors.items.message}
+              </Text>
+            )}
           </FormSection>
 
-          {selectedItems.length > 0 && (
+          {tabSelectedCount > 0 && (
             <FormSection title="Configuration" icon="options">
-              <View className="bg-brand-50/40 rounded-[24px] border border-brand-100/50 overflow-hidden">
+              <View style={{
+                backgroundColor: 'rgba(248, 250, 252, 0.4)',
+                borderRadius: 24,
+                borderWidth: 1,
+                borderColor: '#f1f5f9',
+                overflow: 'hidden',
+              }}>
+
                 {selectedItems.map((item, index) => {
+                  if (item.costType === 'packaging') return null; // Handled separately below
                   const ingredient = ingredients.find(i => i.id === item.ingredientId);
                   const piInfo = productIngredients.find(pi => pi.ingredientId === item.ingredientId);
                   const displayName = ingredient?.name ?? piInfo?.ingredientName ?? 'Resource';
@@ -524,20 +910,49 @@ export function ProductAddIngredientScreen({ route, navigation }: Props) {
 
                   if (!displayName) return null;
 
+
                   return (
-                    <View key={item.ingredientId} className={`p-4 ${index > 0 ? 'border-t border-brand-100/30' : ''}`}>
-                      <View className="flex-row items-center mb-2">
-                        <View className="flex-1 mr-2">
-                          <Text className="text-[11px] font-black text-brand-900 uppercase tracking-widest" numberOfLines={1}>
-                            {displayName}
-                          </Text>
-                          <Text className="text-[10px] font-semibold text-brand-400 mt-0.5">
+                    <View key={item.ingredientId} style={{ 
+                      padding: 16, 
+                      borderTopWidth: index > 0 ? 1 : 0, 
+                      borderTopColor: 'rgba(20, 83, 45, 0.1)' 
+                    }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
+                        <View style={{ flex: 1, marginRight: 8 }}>
+                          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                            <Text style={{
+                              fontSize: 11,
+                              fontWeight: '900',
+                              textTransform: 'uppercase',
+                              letterSpacing: 1,
+                              color: '#1e293b',
+                            }} numberOfLines={1}>
+                              {displayName}
+                            </Text>
+                          </View>
+                          <Text style={{
+                            fontSize: 10,
+                            fontWeight: '600',
+                            color: '#94a3b8',
+                            marginTop: 2,
+                          }}>
                             {formatMoney(unitCost, currencyCode, 3)} / {displayUnit}
                           </Text>
                         </View>
-                        <View className="items-end mr-3">
-                          <Text className="text-[9px] font-black text-brand-300 uppercase tracking-widest mb-0.5">Cost</Text>
-                          <Text className={`text-sm font-black ${lineCost > 0 ? 'text-emerald-700' : 'text-brand-400'}`}>
+                        <View style={{ alignItems: 'flex-end', marginRight: 12 }}>
+                          <Text style={{
+                            fontSize: 9,
+                            fontWeight: '900',
+                            textTransform: 'uppercase',
+                            letterSpacing: 1,
+                            color: '#cbd5e1',
+                            marginBottom: 2,
+                          }}>Cost</Text>
+                          <Text style={{
+                            fontSize: 14,
+                            fontWeight: '900',
+                            color: lineCost > 0 ? '#15803d' : '#94a3b8',
+                          }}>
                             {formatMoney(lineCost, currencyCode)}
                           </Text>
                         </View>
@@ -545,33 +960,338 @@ export function ProductAddIngredientScreen({ route, navigation }: Props) {
                           <Ionicons name="close-circle" size={20} color="#ef4444" />
                         </Pressable>
                       </View>
-                      {/* Quantity used input */}
-                      <View className="flex-row items-center gap-2 mt-1">
-                        <Text className="text-[10px] font-black text-brand-500 uppercase tracking-widest">Qty used per batch</Text>
-                        <View className="flex-1 flex-row items-center bg-white rounded-xl border border-brand-100 px-3 h-9">
-                          <TextInput
-                            value={item.quantityUsed}
-                            onChangeText={(text) => {
-                              const updated = [...selectedItems];
-                              updated[index] = { ...updated[index], quantityUsed: text };
-                              setValue('items', updated, { shouldValidate: true });
-                            }}
-                            keyboardType="decimal-pad"
-                            placeholder="0"
-                            placeholderTextColor="#9ca3af"
-                            className="flex-1 text-sm font-black text-brand-900 p-0"
-                          />
-                          <Text className="text-[10px] font-bold text-brand-400 ml-1">{displayUnit}</Text>
+
+                      <View style={{ marginTop: 8 }}>
+                          {/* Usage Mode Selection - Hide for Raw Materials */}
+                          {(item.costType as string) === 'packaging' && (
+                            <View style={{ flexDirection: 'row', gap: 6, marginBottom: 12 }}>
+                              {[
+                                { id: 'per_piece', label: 'Per Piece', icon: 'person-outline' },
+                                { id: 'pieces_per_unit', label: 'Shared (CPC)', icon: 'grid-outline' },
+                                { id: 'per_batch', label: 'Bulk', icon: 'layers-outline' },
+                              ].map((mode) => (
+                                <Pressable
+                                  key={mode.id}
+                                  onPress={() => {
+                                    const updated = [...selectedItems];
+                                    const m = mode.id as any;
+                                    const rRaw = Number(item.usageRatio);
+                                    // Prevent "0" quantities when the user has an empty/invalid usage ratio.
+                                    const r = isFinite(rRaw) && rRaw > 0 ? rRaw : 0.00001;
+                                    updated[index] = { 
+                                      ...updated[index], 
+                                      usageMode: m,
+                                      quantityUsed: getCalculatedQuantity(batchSizeNumber, m, r)
+                                    };
+                                    setValue('items', updated);
+                                  }}
+                                  style={{
+                                    flex: 1,
+                                    flexDirection: 'row',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    paddingVertical: 6,
+                                    borderRadius: 8,
+                                    backgroundColor: item.usageMode === mode.id ? '#14532d' : '#f8fafc',
+                                    borderWidth: 1,
+                                    borderColor: item.usageMode === mode.id ? '#14532d' : '#f1f5f9',
+                                  }}
+                                >
+                                  <Ionicons name={mode.icon as any} size={10} color={item.usageMode === mode.id ? '#ffffff' : '#64748b'} style={{ marginRight: 4 }} />
+                                  <Text style={{ fontSize: 9, fontWeight: '900', color: item.usageMode === mode.id ? '#ffffff' : '#64748b', textTransform: 'uppercase' }}>{mode.label}</Text>
+                                </Pressable>
+                              ))}
+                            </View>
+                          )}
+
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                            <View style={{ flex: 1 }}>
+                               <Text style={{ fontSize: 8, fontWeight: '900', color: '#94a3b8', textTransform: 'uppercase', marginBottom: 4 }}>
+                                  {(item.costType as string) === 'packaging' 
+                                    ? (item.usageMode === 'per_piece' ? 'Units per Piece' : item.usageMode === 'pieces_per_unit' ? 'Pieces per Unit (CPC)' : 'Total Batch Quantity')
+                                    : 'Quantity Used'}
+                               </Text>
+                               <View style={{
+                                  backgroundColor: '#ffffff',
+                                  borderRadius: 12,
+                                  borderWidth: 1,
+                                  borderColor: '#f1f5f9',
+                                  paddingHorizontal: 12,
+                                  height: 36,
+                                  flexDirection: 'row',
+                                  alignItems: 'center',
+                               }}>
+                                  <TextInput
+                                    value={item.usageRatio}
+                                    onChangeText={(text) => {
+                                      const updated = [...selectedItems];
+                                      const parsed = parseFloat(text);
+                                      const valid = isFinite(parsed) && parsed > 0;
+                                      updated[index] = {
+                                        ...updated[index],
+                                        usageRatio: text,
+                                        ...(valid && {
+                                          quantityUsed: getCalculatedQuantity(batchSizeNumber, item.usageMode, parsed),
+                                        }),
+                                      };
+                                      setValue('items', updated);
+                                    }}
+                                    keyboardType="decimal-pad"
+                                    placeholder="0"
+                                    style={{ flex: 1, fontSize: 13, fontWeight: '900', color: '#1e293b' }}
+                                  />
+                                  <Text style={{ fontSize: 10, fontWeight: '700', color: '#cbd5e1', marginLeft: 4 }}>{displayUnit}</Text>
+                               </View>
+                            </View>
+                            
+                          {(item.costType as string) === 'packaging' && item.usageMode !== 'per_batch' && (
+                              <View style={{ flex: 1 }}>
+                                 <Text style={{ fontSize: 8, fontWeight: '900', color: '#94a3b8', textTransform: 'uppercase', marginBottom: 4 }}>Resulting Batch Qty</Text>
+                                 <View style={{
+                                    backgroundColor: 'rgba(20, 83, 45, 0.03)',
+                                    borderRadius: 12,
+                                    paddingHorizontal: 12,
+                                    height: 36,
+                                    justifyContent: 'center',
+                                    borderWidth: 1,
+                                    borderColor: 'rgba(20, 83, 45, 0.05)',
+                                 }}>
+                                    <Text style={{ fontSize: 13, fontWeight: '900', color: '#14532d' }}>{Math.round(Number(item.quantityUsed) * 100) / 100} {displayUnit}</Text>
+                                 </View>
+                              </View>
+                            )}
+                          </View>
                         </View>
-                      </View>
                     </View>
                   );
                 })}
 
+                {/* Unified Packaging Configuration Block */}
+                {packagingSelected.length > 0 && libraryTab === 'packaging' && (
+                  <View style={{ 
+                    padding: 20, 
+                    backgroundColor: 'rgba(52, 211, 153, 0.05)', 
+                    borderTopWidth: 1, 
+                    borderTopColor: 'rgba(52, 211, 153, 0.1)' 
+                  }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 16 }}>
+                      <View style={{ height: 32, width: 32, borderRadius: 10, backgroundColor: 'rgba(52, 211, 153, 0.1)', alignItems: 'center', justifyContent: 'center', marginRight: 10 }}>
+                        <Ionicons name="cube" size={16} color="#059669" />
+                      </View>
+                      <View>
+                        <Text style={{ fontSize: 10, fontWeight: '900', color: '#059669', textTransform: 'uppercase', letterSpacing: 1 }}>Packaging Setup</Text>
+                        <Text style={{ fontSize: 8, fontWeight: '700', color: '#64748b' }}>Includes: {packagingSelected.map(p => {
+                          const ing = ingredients.find(i => i.id === p.ingredientId);
+                          return ing?.name ?? 'Resource';
+                        }).join(', ')}</Text>
+                      </View>
+                    </View>
+
+                    {/* Row 1: Inputs */}
+                    <View style={{ flexDirection: 'row', gap: 12, marginBottom: 16 }}>
+                      <View style={{ flex: 1.2 }}>
+                        <Text style={{ fontSize: 8, fontWeight: '900', color: '#1e293b', textTransform: 'uppercase', marginBottom: 2 }}>Products per packaging</Text>
+                        <Text style={{ fontSize: 7, fontWeight: '700', color: '#94a3b8', textTransform: 'uppercase', marginBottom: 6 }}>(1 pcs for default per item)</Text>
+                        <View style={{
+                          backgroundColor: '#ffffff',
+                          borderRadius: 12,
+                          borderWidth: 1,
+                          borderColor: '#d1fae5',
+                          paddingHorizontal: 12,
+                          height: 44,
+                          justifyContent: 'center'
+                        }}>
+                          <TextInput
+                            value={unifiedPkgValue}
+                             onChangeText={(v) => {
+                               setUnifiedPkgValue(v);
+                               const parsedU = Number(v);
+                               if (!isFinite(parsedU) || parsedU <= 0) return;
+                               const u = parsedU;
+                               const currentBs = batchSizeNumber;
+                               const newBoxes = currentBs / u;
+                               const safeBoxes = newBoxes > 0 ? newBoxes : 0.00001;
+                               const roundedBoxes = Math.round(safeBoxes * 10000) / 10000;
+                               const finalBoxes = roundedBoxes > 0 ? roundedBoxes : 0.00001;
+
+                               setHelperBatches(String(finalBoxes));
+                               
+                               const currentItems = watch('items') || [];
+                               const updated = currentItems.map(item => {
+                                 if (item.costType === 'packaging') {
+                                   return {
+                                     ...item,
+                                     usageMode: 'pieces_per_unit' as const,
+                                     usageRatio: String(u),
+                                     quantityUsed: String(finalBoxes)
+                                   };
+                                 }
+                                 return {
+                                   ...item,
+                                   quantityUsed: getCalculatedQuantity(currentBs, item.usageMode, Number(item.usageRatio) || 0)
+                                 };
+                               });
+                               setValue('items', updated);
+                               setValue('unitsPerSale', String(u));
+                             }}
+                            keyboardType="decimal-pad"
+                            placeholder="1"
+                            style={{ fontSize: 16, fontWeight: '900', color: '#14532d' }}
+                          />
+                        </View>
+                      </View>
+
+                      <View style={{ flex: 1 }}>
+                        <Text style={{ fontSize: 8, fontWeight: '900', color: '#1e293b', textTransform: 'uppercase', marginBottom: 14 }}>Batch</Text>
+                        <View style={{
+                          backgroundColor: '#ffffff',
+                          borderRadius: 12,
+                          borderWidth: 1,
+                          borderColor: '#d1fae5',
+                          paddingHorizontal: 12,
+                          height: 44,
+                          justifyContent: 'center'
+                        }}>
+                          <TextInput
+                            value={helperBatches}
+                            onChangeText={(v) => {
+                              setHelperBatches(v);
+                              const b = Number(v) || 0;
+                              const u = Number(unifiedPkgValue) || 1;
+                              if (b > 0) {
+                                const newBs = u * b;
+                                setLocalBatchSize(newBs);
+                                const currentItems = watch('items') || [];
+                                const updated = currentItems.map(item => {
+                                  if (item.costType === 'packaging') {
+                                    return {
+                                      ...item,
+                                      quantityUsed: String(b)
+                                    };
+                                  }
+                                  return {
+                                    ...item,
+                                    quantityUsed: getCalculatedQuantity(newBs, item.usageMode, Number(item.usageRatio) || 0)
+                                  };
+                                });
+                                setValue('items', updated);
+                              }
+                            }}
+                            keyboardType="decimal-pad"
+                            placeholder="1"
+                            style={{ fontSize: 16, fontWeight: '900', color: '#14532d' }}
+                          />
+                        </View>
+                      </View>
+                    </View>
+
+                    {/* Row 2: Summary */}
+                    <View style={{ 
+                      flexDirection: 'row', 
+                      alignItems: 'center', 
+                      justifyContent: 'space-between',
+                      backgroundColor: 'rgba(52, 211, 153, 0.1)',
+                      padding: 12,
+                      borderRadius: 16
+                    }}>
+                      <View>
+                        <Text style={{ fontSize: 8, fontWeight: '900', color: '#059669', textTransform: 'uppercase', marginBottom: 4 }}>Total</Text>
+                        <Text style={{ fontSize: 20, fontWeight: '900', color: '#059669' }}>{formatMoney(currentPackagingCost, currencyCode)}</Text>
+                      </View>
+                      <View style={{ alignItems: 'flex-end' }}>
+                        <Text style={{ fontSize: 8, fontWeight: '900', color: '#059669', textTransform: 'uppercase', marginBottom: 4, opacity: 0.7 }}>Breakdown</Text>
+                        <Text style={{ fontSize: 11, fontWeight: '700', color: '#059669' }}>
+                           {Math.floor(Number(helperBatches))} units 
+                           {Number(batchSizeNumber) % (Number(unifiedPkgValue) || 1) !== 0 && (
+                             <Text style={{ fontSize: 9, color: '#065f46', fontWeight: '500' }}>
+                               {` + ${Number(batchSizeNumber) % (Number(unifiedPkgValue) || 1)} pieces`}
+                             </Text>
+                           )}
+                        </Text>
+                        <Text style={{ fontSize: 9, color: '#059669', opacity: 0.6 }}>
+                          x {formatMoney(packagingSelected.reduce((s, p) => {
+                             const ing = ingredients.find(i => i.id === p.ingredientId);
+                             const pi = productIngredients.find(pi => pi.ingredientId === p.ingredientId);
+                             const pr = ing?.pricePerUnit ?? pi?.ingredientPricePerUnit ?? 0;
+                             const q = Math.max(Number(ing?.quantity ?? pi?.ingredientQuantity ?? 1), 0.00000001);
+                             const y = Math.max(Number(ing?.yieldFactor ?? pi?.ingredientYieldFactor ?? 1), 0.00000001);
+                             return s + ((pr / q) / y);
+                           }, 0), currencyCode)}
+                        </Text>
+                      </View>
+                    </View>
+                    {/* Row 3: Remainder Adjustment Suggestions (Optional) */}
+                    {Number(batchSizeNumber) % (Number(unifiedPkgValue) || 1) !== 0 && (
+                      <View style={{ marginTop: 12, borderTopWidth: 1, borderTopColor: 'rgba(52, 211, 153, 0.1)', paddingTop: 10 }}>
+                        <Text style={{ fontSize: 8, fontWeight: '900', color: '#059669', textTransform: 'uppercase', marginBottom: 6, opacity: 0.8 }}>Snap Batch to packaging capacity?</Text>
+                        <View style={{ flexDirection: 'row', gap: 8 }}>
+                          {[
+                            Math.floor(Number(batchSizeNumber) / (Number(unifiedPkgValue) || 1)) * (Number(unifiedPkgValue) || 1),
+                            Math.ceil(Number(batchSizeNumber) / (Number(unifiedPkgValue) || 1)) * (Number(unifiedPkgValue) || 1)
+                          ].filter(v => v > 0).map(suggestedBs => (
+                            <Pressable
+                              key={suggestedBs}
+                              onPress={() => {
+                                const newBs = suggestedBs;
+                                const u = Number(unifiedPkgValue) || 1;
+                                const b = newBs / u;
+                                setLocalBatchSize(newBs);
+                                setHelperBatches(String(b));
+                                
+                                const currentItems = watch('items') || [];
+                                const updated = currentItems.map(item => {
+                                  if (item.costType === 'packaging') {
+                                    return {
+                                      ...item,
+                                      quantityUsed: String(b) 
+                                    };
+                                  }
+                                  return {
+                                    ...item,
+                                    quantityUsed: getCalculatedQuantity(newBs, item.usageMode, Number(item.usageRatio) || 0)
+                                  };
+                                });
+                                setValue('items', updated);
+                              }}
+                              style={{
+                                backgroundColor: '#059669',
+                                paddingHorizontal: 10,
+                                paddingVertical: 4,
+                                borderRadius: 8,
+                              }}
+                            >
+                              <Text style={{ fontSize: 9, fontWeight: '900', color: '#ffffff' }}>Snap to {suggestedBs} pcs</Text>
+                            </Pressable>
+                          ))}
+                        </View>
+                      </View>
+                    )}
+                  </View>
+                )}
+
                 {/* Batch Total Footer */}
-                <View className="bg-brand-100/30 px-4 py-3 border-t border-brand-100/50 flex-row justify-between items-center">
-                   <Text className="text-[10px] font-black text-brand-900 uppercase tracking-widest">Total Selection Cost</Text>
-                   <Text className="text-lg font-black text-brand-900">
+                <View style={{
+                  backgroundColor: 'rgba(20, 83, 45, 0.05)',
+                  paddingHorizontal: 16,
+                  paddingVertical: 12,
+                  borderTopWidth: 1,
+                  borderTopColor: 'rgba(20, 83, 45, 0.1)',
+                  flexDirection: 'row',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                }}>
+                   <Text style={{
+                     fontSize: 10,
+                     fontWeight: '900',
+                     textTransform: 'uppercase',
+                     letterSpacing: 1,
+                     color: '#1e293b',
+                   }}>Total Selection Cost</Text>
+                   <Text style={{
+                     fontSize: 18,
+                     fontWeight: '900',
+                     color: '#1e293b',
+                   }}>
                       {formatMoney(selectedItems.reduce((sum, item) => {
                         const ing = ingredients.find(i => i.id === item.ingredientId) as any;
                         const pi = productIngredients.find(p => p.ingredientId === item.ingredientId) as any;
@@ -585,30 +1305,16 @@ export function ProductAddIngredientScreen({ route, navigation }: Props) {
                    </Text>
                 </View>
               </View>
-
-              <Text className="text-[10px] font-black text-brand-800 uppercase mt-4 mb-3 tracking-widest px-1">Grouping / Cost Type</Text>
-              <Text className="text-[10px] text-brand-400 italic font-medium px-1 mb-2">
-                Use Overhead/Utilities here only for batch-variable costs. Shared monthly fixed costs belong in Cost Groups.
-              </Text>
-              <View className="flex-row flex-wrap gap-2">
-                {COST_TYPES.map((costType) => (
-                  <OptionChip
-                    key={costType}
-                    label={COST_TYPE_LABELS[costType] ?? costType}
-                    selected={selectedCostType === costType}
-                    onPress={() => setValue('costType', costType, { shouldValidate: true })}
-                  />
-                ))}
-              </View>
             </FormSection>
           )}
 
           {/* Resource selection and configuration already handled above */}
           
+
           {/* Composition Summary */}
           {productIngredients.length > 0 && (
             <FormSection title="Composition (Already Linked)" icon="checkmark-circle-outline">
-              <View className="gap-6">
+              <View style={{ gap: 24 }}>
                 {['ingredients', 'material', 'packaging', 'overhead', 'labor', 'utilities', 'other'].map((costType) => {
                   const groupItems = productIngredients.filter(pi => pi.costType === costType);
                   if (groupItems.length === 0) return null;
@@ -619,48 +1325,104 @@ export function ProductAddIngredientScreen({ route, navigation }: Props) {
                   const isExpanded = expandedCategories.has(costType);
 
                   return (
-                    <View key={costType} className="mb-4">
+                    <View key={costType} style={{ marginBottom: 16 }}>
                       <Pressable 
                         onPress={() => toggleCategory(costType)}
-                        className="active:opacity-70"
+                        style={{ paddingHorizontal: 4 }}
                       >
-                        <View className="flex-row items-center justify-between mb-3 px-1">
-                          <View className="flex-row items-center">
+                        <View style={{
+                          flexDirection: 'row',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          marginBottom: 12,
+                          paddingHorizontal: 4,
+                        }}>
+                          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                             <Ionicons 
                               name={isExpanded ? "chevron-down" : "chevron-forward"} 
                               size={12} 
                               color="#166534" 
                               style={{ marginRight: 6 }}
                             />
-                            <Text className="text-[11px] font-black text-brand-900 uppercase tracking-[2px]">{costTypeLabel}</Text>
+                            <Text style={{
+                              fontSize: 11,
+                              fontWeight: '900',
+                              color: '#1e293b',
+                              textTransform: 'uppercase',
+                              letterSpacing: 2,
+                            }}>{costTypeLabel}</Text>
                           </View>
                           
                           {!isExpanded && (
-                            <View className="bg-brand-900 px-2 py-0.5 rounded-full">
-                               <Text className="text-[9px] font-black text-white uppercase">{formatMoney(groupTotal, currencyCode)}</Text>
+                            <View style={{
+                              backgroundColor: '#1e293b',
+                              paddingHorizontal: 8,
+                              paddingVertical: 2,
+                              borderRadius: 12,
+                            }}>
+                               <Text style={{
+                                 fontSize: 9,
+                                 fontWeight: '900',
+                                 color: '#ffffff',
+                                 textTransform: 'uppercase',
+                               }}>{formatMoney(groupTotal, currencyCode)}</Text>
                             </View>
                           )}
                         </View>
                       </Pressable>
 
-                      <View className="bg-brand-50/40 border border-brand-100/50 rounded-[24px] overflow-hidden">
+                      <View style={{
+                        backgroundColor: 'rgba(248, 250, 252, 0.4)',
+                        borderWidth: 1,
+                        borderColor: '#f1f5f9',
+                        borderRadius: 24,
+                        overflow: 'hidden',
+                      }}>
                         {isExpanded && (
                           <View>
                             {groupItems.map((pi, idx) => (
                               <View 
                                 key={pi.id} 
-                                className={`flex-row items-center p-4 ${idx > 0 ? 'border-t border-brand-100/30' : ''}`}
+                                style={{
+                                  flexDirection: 'row',
+                                  alignItems: 'center',
+                                  padding: 16,
+                                  borderTopWidth: idx > 0 ? 1 : 0,
+                                  borderTopColor: 'rgba(241, 245, 249, 0.5)',
+                                }}
                               >
-                                <View className="flex-1 mr-3">
-                                  <Text className="text-[11px] font-black text-brand-900 mb-1" numberOfLines={1}>{pi.ingredientName}</Text>
-                                  <Text className="text-[10px] font-black text-brand-400 uppercase tracking-widest">
+                                <View style={{ flex: 1, marginRight: 12 }}>
+                                  <Text style={{
+                                    fontSize: 11,
+                                    fontWeight: '900',
+                                    color: '#1e293b',
+                                    marginBottom: 4,
+                                  }} numberOfLines={1}>{pi.ingredientName}</Text>
+                                  <Text style={{
+                                    fontSize: 10,
+                                    fontWeight: '900',
+                                    color: '#94a3b8',
+                                    textTransform: 'uppercase',
+                                    letterSpacing: 1,
+                                  }}>
                                      {pi.quantityUsed}{pi.ingredientUnit} × {formatMoney(getTrueUnitCost(pi), currencyCode, 3)}
                                   </Text>
                                 </View>
 
-                                <View className="items-end mr-4">
-                                   <Text className="text-[9px] font-black text-brand-300 uppercase tracking-widest mb-1">COST</Text>
-                                   <Text className="text-base font-black text-emerald-700">
+                                <View style={{ alignItems: 'flex-end', marginRight: 16 }}>
+                                   <Text style={{
+                                     fontSize: 9,
+                                     fontWeight: '900',
+                                     color: '#cbd5e1',
+                                     textTransform: 'uppercase',
+                                     letterSpacing: 1,
+                                     marginBottom: 4,
+                                   }}>COST</Text>
+                                   <Text style={{
+                                     fontSize: 16,
+                                     fontWeight: '900',
+                                     color: '#15803d',
+                                   }}>
                                       {formatMoney(getTrueUnitCost(pi) * pi.quantityUsed, currencyCode)}
                                    </Text>
                                 </View>
@@ -683,18 +1445,55 @@ export function ProductAddIngredientScreen({ route, navigation }: Props) {
                             ))}
                             
                             {/* Group Summary Footer */}
-                            <View className="bg-brand-100/30 px-4 py-3 border-t border-brand-100/50 flex-row justify-between items-center">
-                              <Text className="text-[10px] font-black text-brand-900 uppercase tracking-widest">{costTypeLabel} Total</Text>
-                              <Text className="text-lg font-black text-brand-900">{formatMoney(groupTotal, currencyCode)}</Text>
+                            <View style={{
+                              backgroundColor: 'rgba(241, 245, 249, 0.3)',
+                              paddingHorizontal: 16,
+                              paddingVertical: 12,
+                              borderTopWidth: 1,
+                              borderTopColor: 'rgba(241, 245, 249, 0.5)',
+                              flexDirection: 'row',
+                              justifyContent: 'space-between',
+                              alignItems: 'center',
+                            }}>
+                              <Text style={{
+                                fontSize: 10,
+                                fontWeight: '900',
+                                color: '#1e293b',
+                                textTransform: 'uppercase',
+                                letterSpacing: 1,
+                              }}>Total</Text>
+                              <Text style={{
+                                fontSize: 18,
+                                fontWeight: '900',
+                                color: '#1e293b',
+                              }}>{formatMoney(groupTotal, currencyCode)}</Text>
                             </View>
                           </View>
                         )}
                         
                         {!isExpanded && (
                           <Pressable onPress={() => toggleCategory(costType)}>
-                             <View className="px-4 py-3 flex-row justify-between items-center">
-                                <Text className="text-[10px] font-black text-brand-400 uppercase tracking-widest">Tap to view breakdown</Text>
-                                <Text className="text-[10px] font-black text-brand-300 uppercase tracking-widest">{groupItems.length} Items</Text>
+                             <View style={{
+                               paddingHorizontal: 16,
+                               paddingVertical: 12,
+                               flexDirection: 'row',
+                               justifyContent: 'space-between',
+                               alignItems: 'center',
+                             }}>
+                                <Text style={{
+                                  fontSize: 10,
+                                  fontWeight: '900',
+                                  color: '#94a3b8',
+                                  textTransform: 'uppercase',
+                                  letterSpacing: 1,
+                                }}>Tap to view breakdown</Text>
+                                <Text style={{
+                                  fontSize: 10,
+                                  fontWeight: '900',
+                                  color: '#cbd5e1',
+                                  textTransform: 'uppercase',
+                                  letterSpacing: 1,
+                                }}>{groupItems.length} Items</Text>
                              </View>
                           </Pressable>
                         )}
@@ -706,22 +1505,82 @@ export function ProductAddIngredientScreen({ route, navigation }: Props) {
             </FormSection>
           )}
 
-          <View className="mt-4 gap-4 pb-20">
-            <Pressable
-              onPress={handleSubmit((v) => onSubmit(v, false))}
-              disabled={isSubmitting}
-            >
-              <View className={`h-16 items-center justify-center rounded-[32px] bg-brand-900 shadow-lg ${isSubmitting ? 'opacity-70' : ''}`}>
-                <Text className="font-black text-white text-sm tracking-widest uppercase">
-                  {isSubmitting ? 'Processing...' : activeEditLinkId ? 'Update Resource Link' : 'Link to Composition'}
-                </Text>
-              </View>
-            </Pressable>
-          </View>
+
 
         </ScrollView>
       </KeyboardAvoidingView>
 
+      {/* Floating Action Button */}
+      {tabSelectedCount > 0 && (
+        <View 
+          style={{
+            position: 'absolute',
+            bottom: 0,
+            left: 0,
+            right: 0,
+            backgroundColor: 'rgba(255, 255, 255, 0.95)',
+            paddingHorizontal: 24,
+            paddingTop: 16,
+            borderTopWidth: 1,
+            borderTopColor: '#f8fafc',
+            paddingBottom: Math.max(insets.bottom, 24),
+          }}
+        >
+          <Pressable
+            onPress={() => {
+              const values = getValues();
+              const isPackagingTab = libraryTab === 'packaging';
+              const tabItems = values.items.filter((i: AddIngredientValues['items'][number]) =>
+                isPackagingTab ? i.costType === 'packaging' : i.costType !== 'packaging'
+              );
+              if (tabItems.length === 0) {
+                showAlert('No items selected', 'Select at least one resource from this tab.');
+                return;
+              }
+              const hasInvalid = tabItems.some((i: AddIngredientValues['items'][number]) => {
+                const qty = parseFloat(i.quantityUsed);
+                const ratio = parseFloat(i.usageRatio);
+                return isNaN(qty) || qty <= 0 || isNaN(ratio) || ratio < 0;
+              });
+              if (hasInvalid) {
+                showAlert('Invalid input', 'Check your resource quantities before composing.');
+                return;
+              }
+              const ups = parseFloat(values.unitsPerSale);
+              if (isNaN(ups) || ups <= 0) {
+                showAlert('Invalid input', 'Units per sale must be a positive number.');
+                return;
+              }
+              void onSubmit(values, false);
+            }}
+            disabled={isSubmitting}
+          >
+            <View style={{
+              height: 56,
+              alignItems: 'center',
+              justifyContent: 'center',
+              borderRadius: 32,
+              backgroundColor: '#14532d',
+              shadowColor: '#14532d',
+              shadowOffset: { width: 0, height: 8 },
+              shadowOpacity: 0.2,
+              shadowRadius: 12,
+              elevation: 8,
+              opacity: isSubmitting ? 0.7 : 1,
+            }}>
+              <Text style={{
+                fontWeight: '900',
+                color: '#ffffff',
+                fontSize: 14,
+                letterSpacing: 2,
+                textTransform: 'uppercase',
+              }}>
+                {isSubmitting ? 'Processing...' : activeEditLinkId ? 'Update Composition' : 'Compose'}
+              </Text>
+            </View>
+          </Pressable>
+        </View>
+      )}
       <ActionModal
         visible={modalState.visible}
         title={modalState.title}

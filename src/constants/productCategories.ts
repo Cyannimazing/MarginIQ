@@ -11,3 +11,11 @@ export const COST_TYPES = ['ingredients', 'material', 'packaging', 'overhead', '
 
 export const RESOURCE_TAGS = ['Raw Material', 'Packaging', 'Labor', 'Utilities', 'Other'] as const;
 export type ResourceTag = (typeof RESOURCE_TAGS)[number];
+
+export const RESOURCE_TAG_LABELS: Record<ResourceTag, string> = {
+  'Raw Material': 'Raw Material',
+  'Packaging': 'Consumables & Packaging',
+  'Labor': 'Labor',
+  'Utilities': 'Utilities',
+  'Other': 'Other',
+};

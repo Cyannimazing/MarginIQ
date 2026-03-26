@@ -12,7 +12,7 @@ type IngredientState = {
   isLoading: boolean;
   error: string | null;
   loadIngredients: (productId?: number) => Promise<void>;
-  addIngredient: (input: IngredientInput) => Promise<void>;
+  addIngredient: (input: IngredientInput) => Promise<number>;
   editIngredient: (productId: number | undefined, id: number, input: IngredientInput) => Promise<void>;
   removeIngredient: (productId: number | undefined, id: number) => Promise<void>;
   getIngredientById: (id: number) => Ingredient | undefined;
@@ -37,9 +37,10 @@ export const useIngredientStore = create<IngredientState>((set, get) => ({
   addIngredient: async (input) => {
     set({ isLoading: true, error: null });
     try {
-      await addIngredient(input);
+      const id = await addIngredient(input) as number;
       const rows = await listAllIngredients();
       set({ ingredients: rows as Ingredient[], isLoading: false });
+      return id;
     } catch (error) {
       set({ isLoading: false, error: getErrorMessage(error) });
       throw error;

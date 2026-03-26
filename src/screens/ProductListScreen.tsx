@@ -10,6 +10,7 @@ import { useSettingsStore } from '../stores/settingsStore';
 import { ProductCard } from '../features/products/components/ProductCard';
 import { ActionModal } from '../components/ui/ActionModal';
 import { formatMoney } from '../utils/currency';
+import { normalizeUnitsPerSale, saleUnitDisplayName } from '../utils/productEconomics';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'ProductList'>;
 
@@ -123,14 +124,14 @@ export function ProductListScreen({ navigation }: Props) {
             Manage your product catalog, base costs, and linked ingredient recipes.
           </Text>
         </View>
-      {!!error && <Text className="mb-2 text-sm text-red-600">{error}</Text>}
+        {!!error && <Text className="mb-2 text-sm text-red-600">{error}</Text>}
 
         <FlatList
           data={sortedProducts}
           keyExtractor={(item) => String(item.id)}
           refreshing={isLoading}
           onRefresh={() => void loadProducts()}
-          contentContainerClassName="gap-2.5 pb-28"
+          contentContainerClassName="gap-2.5 pb-4"
           ListEmptyComponent={
             <View className="items-center py-10">
               <Text className="text-sm text-slate-500">
@@ -168,6 +169,12 @@ export function ProductListScreen({ navigation }: Props) {
                       <Text className="text-lg font-bold text-slate-900">{item.name}</Text>
                       <Text className="mt-0.5 text-sm text-slate-500">
                         {item.category} • Batch: {item.batchSize}
+                        {(() => {
+                          const ups = normalizeUnitsPerSale((item as any).unitsPerSale, item.batchSize);
+                          if (ups <= 1) return '';
+                          const lbl = saleUnitDisplayName((item as any).saleUnitLabel, ups);
+                          return ` • ${ups} pcs / ${lbl}`;
+                        })()}
                       </Text>
                       <View className="mt-3 flex-row items-center justify-between pr-4">
                          <View>
@@ -178,7 +185,7 @@ export function ProductListScreen({ navigation }: Props) {
                          </View>
                          <View className="items-end">
                             <Text className="text-xs font-semibold text-brand-700">
-                              {item.pricingMethod === 'fixed' 
+                              {item.pricingMethod === 'fixed'
                                 ? formatMoney(item.targetMargin, currencyCode)
                                 : `${(item.targetMargin * 100).toFixed(0)}%`}
                             </Text>
@@ -188,7 +195,7 @@ export function ProductListScreen({ navigation }: Props) {
                          </View>
                       </View>
                     </View>
-                    
+
                     {isGroupingMode ? (
                       <View className={`h-6 w-6 items-center justify-center rounded-full border-2 ${isSelected ? 'border-brand-600 bg-brand-600' : 'border-slate-300 bg-white'}`}>
                         {isSelected && <Ionicons name="checkmark" size={16} color="white" />}
@@ -203,46 +210,6 @@ export function ProductListScreen({ navigation }: Props) {
           }}
         />
 
-        <View className="absolute bottom-4 right-4 items-end gap-3 z-50">
-          {isGroupingMode ? (
-            <>
-              <Pressable onPress={() => { setIsGroupingMode(false); setSelectedProductIds([]); }}>
-                <View className="rounded-full bg-white border border-slate-200 shadow-sm px-5 py-3.5">
-                  <Text className="font-bold text-slate-700 tracking-wide">Cancel Selection</Text>
-                </View>
-              </Pressable>
-              
-              <Pressable 
-                onPress={() => selectedProductIds.length > 0 && setIsGroupModalVisible(true)}
-                disabled={selectedProductIds.length === 0}
-              >
-                <View className={`flex-row items-center rounded-[24px] shadow-sm px-6 py-4 ${selectedProductIds.length > 0 ? 'bg-brand-900' : 'bg-slate-300'}`}>
-                  <Ionicons name="layers" size={18} color="white" style={{ marginRight: 6 }} />
-                  <Text className="font-bold text-white tracking-wide">
-                    Create Group {selectedProductIds.length > 0 ? `(${selectedProductIds.length})` : ''}
-                  </Text>
-                </View>
-              </Pressable>
-            </>
-          ) : (
-            <>
-              <Pressable onPress={() => setIsGroupingMode(true)}>
-                <View className="flex-row items-center rounded-full bg-brand-50 border border-brand-200 px-5 py-3 shadow-sm">
-                  <Ionicons name="layers-outline" size={18} color="#14532d" style={{ marginRight: 6 }} />
-                  <Text className="font-bold text-brand-800 tracking-wide">Group</Text>
-                </View>
-              </Pressable>
-
-              <Pressable onPress={() => navigation.navigate('ProductForm', { productId: undefined })}>
-                <View className="flex-row items-center rounded-[24px] bg-brand-900 px-6 py-4 shadow-sm">
-                  <Ionicons name="add" size={20} color="white" style={{ marginRight: 4, marginLeft: -4 }} />
-                  <Text className="font-bold text-white tracking-wide">Add Product</Text>
-                </View>
-              </Pressable>
-            </>
-          )}
-        </View>
-
         {/* Group Name Modal */}
         <Modal visible={isGroupModalVisible} transparent animationType="fade" onRequestClose={() => setIsGroupModalVisible(false)}>
           <KeyboardAvoidingView className="flex-1" behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
@@ -250,7 +217,7 @@ export function ProductListScreen({ navigation }: Props) {
               <View className="bg-white rounded-[32px] w-full p-6 shadow-xl">
                 <Text className="text-xl font-black text-brand-900 text-center mb-2">Name Your Group</Text>
                 <Text className="text-sm font-medium text-slate-500 text-center mb-6">Create a shared category for {selectedProductIds.length} product(s).</Text>
-                
+
                 <TextInput
                   value={groupNameInput}
                   onChangeText={setGroupNameInput}
@@ -276,7 +243,47 @@ export function ProductListScreen({ navigation }: Props) {
             </View>
           </KeyboardAvoidingView>
         </Modal>
+      </View>
 
+      {/* Bottom action bar — sits below the list, never overlaps it */}
+      <View className="flex-row items-center justify-end gap-3 px-4 py-3 bg-slate-50 border-t border-slate-100">
+        {isGroupingMode ? (
+          <>
+            <Pressable onPress={() => { setIsGroupingMode(false); setSelectedProductIds([]); }}>
+              <View className="rounded-full bg-white border border-slate-200 px-5 py-3">
+                <Text className="font-bold text-slate-700 tracking-wide">Cancel</Text>
+              </View>
+            </Pressable>
+
+            <Pressable
+              onPress={() => selectedProductIds.length > 0 && setIsGroupModalVisible(true)}
+              disabled={selectedProductIds.length === 0}
+            >
+              <View className={`flex-row items-center rounded-[24px] px-6 py-3 ${selectedProductIds.length > 0 ? 'bg-brand-900' : 'bg-slate-300'}`}>
+                <Ionicons name="layers" size={18} color="white" style={{ marginRight: 6 }} />
+                <Text className="font-bold text-white tracking-wide">
+                  Create Group {selectedProductIds.length > 0 ? `(${selectedProductIds.length})` : ''}
+                </Text>
+              </View>
+            </Pressable>
+          </>
+        ) : (
+          <>
+            <Pressable onPress={() => setIsGroupingMode(true)}>
+              <View className="flex-row items-center rounded-full bg-brand-50 border border-brand-200 px-5 py-3">
+                <Ionicons name="layers-outline" size={18} color="#14532d" style={{ marginRight: 6 }} />
+                <Text className="font-bold text-brand-800 tracking-wide">Group</Text>
+              </View>
+            </Pressable>
+
+            <Pressable onPress={() => navigation.navigate('ProductForm', { productId: undefined })}>
+              <View className="flex-row items-center rounded-[24px] bg-brand-900 px-6 py-3">
+                <Ionicons name="add" size={20} color="white" style={{ marginRight: 4, marginLeft: -4 }} />
+                <Text className="font-bold text-white tracking-wide">Add Product</Text>
+              </View>
+            </Pressable>
+          </>
+        )}
       </View>
     </SafeAreaView>
   );

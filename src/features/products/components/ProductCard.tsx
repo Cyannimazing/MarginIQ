@@ -46,40 +46,79 @@ export function ProductCard({
       onLongPress={() => onLongPress(product)}
       delayLongPress={500}
     >
-      <View className="shadow-sm" style={{ opacity: isGroupingMode && isGrouped ? 0.5 : 1 }}>
+      <View style={{
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.05,
+        shadowRadius: 2,
+        elevation: 1,
+        opacity: isGroupingMode && isGrouped ? 0.5 : 1,
+      }}>
         <View 
           style={{ 
             backgroundColor, 
             borderColor, 
-            borderWidth: product.isPinned && !isTrashView ? 2 : 1 
+            borderWidth: product.isPinned && !isTrashView ? 2 : 1,
+            borderRadius: 24,
+            overflow: 'hidden',
+            position: 'relative',
           }} 
-          className="rounded-[24px] overflow-hidden relative"
         >
           {isTrashView && (
-            <View className="bg-slate-50 px-5 py-2 border-b border-slate-100 flex-row items-center">
+            <View style={{
+              backgroundColor: '#f8fafc',
+              paddingHorizontal: 20,
+              paddingVertical: 8,
+              borderBottomWidth: 1,
+              borderBottomColor: '#f1f5f9',
+              flexDirection: 'row',
+              alignItems: 'center',
+            }}>
               <Ionicons name="trash-outline" size={12} color="#64748b" />
-              <Text className="ml-2 text-[10px] text-slate-500 font-bold uppercase tracking-tighter">
+              <Text style={{
+                marginLeft: 8,
+                fontSize: 10,
+                color: '#64748b',
+                fontWeight: 'bold',
+                textTransform: 'uppercase',
+                letterSpacing: -0.5,
+              }}>
                 Deleted {product.deletedAt ? `on ${new Date(product.deletedAt).toLocaleDateString()}` : ''}
               </Text>
             </View>
           )}
 
-          <View className="p-5 flex-row items-center">
-            <View className="flex-1">
-              <View className="flex-row items-center mb-1">
-                 <Text className={`text-[10px] font-black uppercase tracking-widest ${product.isPinned && !isTrashView ? 'text-brand-800' : 'text-brand-600'}`}>
+          <View style={{ padding: 20, flexDirection: 'row', alignItems: 'center' }}>
+            <View style={{ flex: 1 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 4 }}>
+                 <Text style={{
+                   fontSize: 10,
+                   fontWeight: '900',
+                   textTransform: 'uppercase',
+                   letterSpacing: 1,
+                   color: product.isPinned && !isTrashView ? '#14532d' : '#166534',
+                 }}>
                    {product.isPinned && !isTrashView ? '★ PRIORITY' : (product.category || 'NO CATEGORY')}
                  </Text>
               </View>
-              <Text className="text-lg font-black text-brand-900 pr-8" numberOfLines={1}>{product.name}</Text>
-              <Text className="text-sm font-bold text-brand-700 mt-0.5">
+              <Text style={{ fontSize: 18, fontWeight: '900', color: '#14532d', paddingRight: 32 }} numberOfLines={1}>{product.name}</Text>
+              <Text style={{ fontSize: 14, fontWeight: '700', color: '#15803d', marginTop: 2 }}>
                 {formatMoney(product.sellingPrice, currencyCode)} 
-                <Text className="text-[10px] font-black text-brand-400 uppercase tracking-tighter"> • {pricingLabel}</Text>
+                <Text style={{ fontSize: 10, fontWeight: '900', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: -0.5 }}> • {pricingLabel}</Text>
               </Text>
             </View>
 
             {isGroupingMode ? (
-              <View className={`h-6 w-6 items-center justify-center rounded-full border-2 ${isGrouped ? 'border-slate-200 bg-slate-100' : isSelected ? 'border-brand-600 bg-brand-600' : 'border-slate-300 bg-white'}`}>
+              <View style={{
+                height: 24,
+                width: 24,
+                alignItems: 'center',
+                justifyContent: 'center',
+                borderRadius: 12,
+                borderWidth: 2,
+                borderColor: isGrouped ? '#e2e8f0' : isSelected ? '#14532d' : '#cbd5e1',
+                backgroundColor: isGrouped ? '#f1f5f9' : isSelected ? '#14532d' : '#ffffff',
+              }}>
                 {isSelected && !isGrouped && <Ionicons name="checkmark" size={16} color="white" />}
               </View>
             ) : (
