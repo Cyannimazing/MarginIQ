@@ -4,7 +4,7 @@
     "slug": "marginiq",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/ICON-MARGINIQ.png",
+    "icon": "./assets/ICONAPK.png",
     "userInterfaceStyle": "light",
     "splash": {
       "image": "./assets/ICON-MARGINIQ.png",
@@ -16,9 +16,8 @@
     },
     "android": {
       "adaptiveIcon": {
-        "foregroundImage": "./assets/ICON-MARGINIQ.png",
-        "backgroundColor": "#14532d",
-        "monochromeImage": "./assets/android-icon-monochrome.png"
+        "foregroundImage": "./assets/ICONAPK.png",
+        "backgroundColor": "#14532d"
       },
       "predictiveBackGestureEnabled": false,
       "package": "com.cyann1730.marginiq",
