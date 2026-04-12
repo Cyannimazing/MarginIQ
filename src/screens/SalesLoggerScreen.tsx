@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useRoute, RouteProp } from '@react-navigation/native';
-import { KeyboardAvoidingView, Platform, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, KeyboardAvoidingView, Platform, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useProductStore } from '../stores/productStore';
@@ -19,9 +19,11 @@ import { formatMoney } from '../utils/currency';
 import { normalizeUnitsPerSale, perSaleCost, saleUnitDisplayName } from '../utils/productEconomics';
 import { getCurrentMonth, getDailyPeriod, getWeeklyPeriod, isValidMonth } from '../utils/month';
 import { useSettingsStore } from '../stores/settingsStore';
+import { safeGoBack } from '../navigation/navigationService';
 import { OptionChip } from '../components/ui/OptionChip';
 import { FormSection } from '../components/ui/FormSection';
 import { ActionModal } from '../components/ui/ActionModal';
+import { SpotlightOverlay } from '../components/ui/SpotlightOverlay';
 
 const parseUnits = (value: string) => {
   const parsed = Number(value);
@@ -36,6 +38,7 @@ export function SalesLoggerScreen() {
   const insets = useSafeAreaInsets();
 
   const products = useProductStore((state) => state.products);
+  const isLoadingProducts = useProductStore((state) => state.isLoading);
   const costGroups = useProductStore((state) => state.costGroups);
   const loadProducts = useProductStore((state) => state.loadProducts);
   const loadProductIngredients = useProductStore((state) => state.loadProductIngredients);
@@ -52,6 +55,8 @@ export function SalesLoggerScreen() {
   const settings = useSettingsStore((state) => state.settings);
   const saveSettings = useSettingsStore((state) => state.saveSettings);
   const currencyCode = settings.currencyCode;
+  const tutorialStep = useSettingsStore((state) => state.settings.tutorialStep);
+  const tutorialGuideTopic = useSettingsStore((state) => state.settings.tutorialGuideTopic);
 
   const [selectedProductId, setSelectedProductId] = useState<number | null>(routeProductId);
   const [month, setMonth] = useState(getDailyPeriod());
@@ -92,6 +97,12 @@ export function SalesLoggerScreen() {
     setUnitsSoldDiscountedInput('');
     setUnitsUnsoldInput('');
   }, [selectedProductId, month]);
+
+  useEffect(() => {
+    if (tutorialStep !== 1 || tutorialGuideTopic !== 't-sales') {
+      // no-op; sales tutorial completion is handled on Dashboard after navigation back
+    }
+  }, [tutorialStep, tutorialGuideTopic]);
 
 
   const selectedProduct = selectedProductId ? getProductById(selectedProductId) : undefined;
@@ -223,6 +234,21 @@ export function SalesLoggerScreen() {
       });
       return;
     }
+
+    const anyInvalidInput =
+      (unitsSoldInput.trim() !== '' && !Number.isFinite(Number(unitsSoldInput))) ||
+      (unitsSoldDiscountedInput.trim() !== '' && !Number.isFinite(Number(unitsSoldDiscountedInput))) ||
+      (unitsUnsoldInput.trim() !== '' && !Number.isFinite(Number(unitsUnsoldInput)));
+    if (anyInvalidInput) {
+      setModalState({
+        visible: true,
+        isAlert: true,
+        title: 'Invalid Input',
+        message: 'One or more unit fields contain invalid values. Please enter whole numbers only.',
+      });
+      return;
+    }
+
     setIsSaving(true);
     try {
       const overheadCostTotal = roundTo(Math.min(overheadPerUnit * unitsProduced, totalMonthlyOverhead), 2);
@@ -243,10 +269,13 @@ export function SalesLoggerScreen() {
         targetProfit,
         shortfall,
       });
-      // Just clear success silently
+      // Clear inputs
       setUnitsSoldInput('');
       setUnitsSoldDiscountedInput('');
       setUnitsUnsoldInput('');
+      if (tutorialStep === 1 && tutorialGuideTopic === 't-sales') {
+        await saveSettings({ tutorialStep: 1, tutorialGuideTopic: 't-sales:done' });
+      }
     } catch {
       setModalState({
         visible: true,
@@ -269,6 +298,14 @@ export function SalesLoggerScreen() {
       onConfirm: () => removeMonthlySale(id),
     });
   };
+
+  if (isLoadingProducts && products.length === 0) {
+    return (
+      <View style={{ flex: 1, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center' }}>
+        <ActivityIndicator size="large" color="#14532d" />
+      </View>
+    );
+  }
 
   return (
     <View className="flex-1 bg-white">
@@ -358,6 +395,21 @@ export function SalesLoggerScreen() {
                 />
               </View>
             </View>
+
+            {unitsProduced > 0 && selectedProduct && (
+              <View className="flex-row gap-3 mt-2">
+                <View className="flex-1 bg-brand-50 border border-brand-100 rounded-2xl px-4 py-3">
+                  <Text className="text-[9px] font-black text-brand-400 uppercase tracking-widest mb-1">Pieces Sold</Text>
+                  <Text className="text-lg font-black text-brand-900">{unitsSold + unitsSoldDiscounted}</Text>
+                </View>
+                <View className="flex-1 bg-brand-50 border border-brand-100 rounded-2xl px-4 py-3">
+                  <Text className="text-[9px] font-black text-brand-400 uppercase tracking-widest mb-1">Batches Produced</Text>
+                  <Text className="text-lg font-black text-brand-900">
+                    {(unitsProduced / Math.max(Number(selectedProduct.batchSize) || 1, 1)).toFixed(2)}
+                  </Text>
+                </View>
+              </View>
+            )}
           </FormSection>
 
 
@@ -426,6 +478,23 @@ export function SalesLoggerScreen() {
         }}
         onSecondaryAction={() => setModalState((s: any) => ({ ...s, visible: false }))}
       />
+
+      {tutorialStep === 1 && (tutorialGuideTopic === 't-sales' || tutorialGuideTopic === 't-sales:done') && (
+        <SpotlightOverlay
+          message={
+            tutorialGuideTopic === 't-sales:done'
+              ? 'Sale logged successfully!'
+              : "Enter how many units you sold, discounted, and unsold. Once you're done, tap Log Sales Data to save the entry!"
+          }
+          autoExit={tutorialGuideTopic === 't-sales:done'}
+          textHideDelayMs={2000}
+          avatarFadeDelayMs={800}
+          avatarFadeDurationMs={800}
+          onAutoExitComplete={() => void saveSettings({ tutorialStep: 0, tutorialGuideTopic: '' })}
+          onSkip={() => void saveSettings({ tutorialStep: 0, tutorialGuideTopic: '' })}
+        />
+      )}
+
     </View>
   );
 }

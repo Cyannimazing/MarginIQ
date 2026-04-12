@@ -25,6 +25,7 @@ import {
 } from '../utils/overheadLines';
 import { FormSection } from '../components/ui/FormSection';
 import { ActionModal } from '../components/ui/ActionModal';
+import { SpotlightOverlay } from '../components/ui/SpotlightOverlay';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'MonthlyOverheadBreakdown'>;
 
@@ -39,6 +40,9 @@ export function MonthlyOverheadBreakdownScreen({ route, navigation }: Props) {
   const editCostGroup = useProductStore((s) => s.editCostGroup);
 
   const currencyCode = useSettingsStore((s) => s.settings.currencyCode);
+  const tutorialStep = useSettingsStore((s) => s.settings.tutorialStep);
+  const tutorialGuideTopic = useSettingsStore((s) => s.settings.tutorialGuideTopic);
+  const saveSettings = useSettingsStore((s) => s.saveSettings);
 
   const rawJson = useMemo(() => {
     if (target === 'product' && productId != null) {
@@ -109,6 +113,8 @@ export function MonthlyOverheadBreakdownScreen({ route, navigation }: Props) {
   const subtotal = useMemo(() => sumOverheadLines(lines), [lines]);
   const contingencyAmount = useMemo(() => subtotal * (contingencyPct / 100), [subtotal, contingencyPct]);
   const total = subtotal + contingencyAmount;
+  const hasNamedLine = useMemo(() => lines.some((row) => row.label.trim().length > 0), [lines]);
+  const hasAmountLine = useMemo(() => lines.some((row) => Number(row.amount) > 0), [lines]);
 
   const titleHint =
     target === 'product'
@@ -133,7 +139,7 @@ export function MonthlyOverheadBreakdownScreen({ route, navigation }: Props) {
   const handleSave = async () => {
     const sanitized = lines.map((row) => ({
       id: row.id || newLineId(),
-      label: row.label.trim() || 'Expense',
+      label: row.label.trim(),
       amount: Math.max(0, Number(row.amount) || 0),
     }));
     const data = { lines: sanitized, contingencyPct };
@@ -153,6 +159,16 @@ export function MonthlyOverheadBreakdownScreen({ route, navigation }: Props) {
         });
       }
       await loadProducts();
+      if (target === 'product' && tutorialStep === 1 && tutorialGuideTopic === 't-overhead-monthly') {
+        await saveSettings({ tutorialStep: 1, tutorialGuideTopic: 't-overhead-monthly:done' });
+        navigation.goBack();
+        return;
+      }
+      if (target === 'costGroup' && tutorialStep === 1 && tutorialGuideTopic === 't-overhead-group') {
+        await saveSettings({ tutorialStep: 1, tutorialGuideTopic: 't-overhead-group:done' });
+        navigation.goBack();
+        return;
+      }
       navigation.goBack();
     } catch {
       setModal({ visible: true, title: 'Save failed', message: 'Could not save. Try again.', isError: true });
@@ -187,7 +203,7 @@ export function MonthlyOverheadBreakdownScreen({ route, navigation }: Props) {
                   <TextInput
                     value={row.label}
                     onChangeText={(t) => updateLine(row.id, { label: t })}
-                    placeholder="Rent, electricity…"
+                    placeholder="e.g. Rent"
                     placeholderTextColor="#94a3b8"
                     style={{ borderRadius: 16, borderWidth: 1, borderColor: '#dcfce7', backgroundColor: '#f0fdf4', paddingHorizontal: 16, paddingVertical: 12, fontSize: 14, fontWeight: '700', color: '#14532d' }}
                   />
@@ -289,6 +305,36 @@ export function MonthlyOverheadBreakdownScreen({ route, navigation }: Props) {
         primaryActionText="OK"
         onPrimaryAction={() => setModal((s) => ({ ...s, visible: false }))}
       />
+
+      {tutorialStep === 1 && tutorialGuideTopic === 't-overhead-monthly' && target === 'product' && (
+        <SpotlightOverlay
+          message={
+            !hasNamedLine
+              ? 'In the first input, type the expense label like Rent monthly, Labor, Utilities, or Internet.'
+              : !hasAmountLine
+                    ? 'In Amount, enter the monthly cost for each line item.'
+                : contingencyPct <= 0
+                      ? 'Set Contingency Buffer for unexpected costs, then tap Save & apply total.'
+                      : 'Tap Save & apply total to finish this product monthly overhead setup.'
+          }
+          onSkip={() => void saveSettings({ tutorialStep: 0, tutorialGuideTopic: '' })}
+        />
+      )}
+
+      {tutorialStep === 1 && tutorialGuideTopic === 't-overhead-group' && target === 'costGroup' && (
+        <SpotlightOverlay
+          message={
+            !hasNamedLine
+                ? 'Add an expense label, like Rent share, Group labor, or Utilities.'
+                : !hasAmountLine
+                  ? 'Enter the monthly amount for each group expense line.'
+                  : contingencyPct <= 0
+                    ? 'Set Contingency Buffer for unexpected costs, then tap Save & apply total.'
+                    : 'Tap Save & apply total to finish group overhead setup.'
+          }
+          onSkip={() => void saveSettings({ tutorialStep: 0, tutorialGuideTopic: '' })}
+        />
+      )}
     </View>
   );
 }

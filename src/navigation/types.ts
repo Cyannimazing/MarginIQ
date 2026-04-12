@@ -23,6 +23,7 @@ export type RootStackParamList = {
   Analytics: undefined;
   Reports: undefined;
   Settings: undefined;
+  HelpSupport: undefined;
   /** Itemized monthly overhead → summed into product or cost group total */
   MonthlyOverheadBreakdown:
     | { target: 'product'; productId: number; costGroupId?: undefined }

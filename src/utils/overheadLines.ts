@@ -65,7 +65,7 @@ export function stringifyOverheadLines(data: OverheadData): string {
   return JSON.stringify({
     lines: data.lines.map((row) => ({
       id: row.id,
-      label: row.label.trim() || 'Expense',
+      label: row.label.trim(),
       amount: Math.max(0, Number(row.amount) || 0),
     })),
     contingencyPct: Math.max(0, Math.min(100, data.contingencyPct || 0)),

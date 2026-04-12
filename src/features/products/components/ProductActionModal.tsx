@@ -3,6 +3,7 @@ import { View, Text, Pressable, Modal, ScrollView, Animated, Dimensions } from '
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { safeNavigate } from '../../../navigation/navigationService';
+import { useSettingsStore } from '../../../stores/settingsStore';
 
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 
@@ -43,6 +44,8 @@ export function ProductActionModal({
 
 }: ProductActionModalProps) {
   const insets = useSafeAreaInsets();
+  const tutorialStep = useSettingsStore((state) => state.settings.tutorialStep);
+  const tutorialGuideTopic = useSettingsStore((state) => state.settings.tutorialGuideTopic);
   const [internalVisible, setInternalVisible] = useState(false);
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(SCREEN_HEIGHT)).current;
@@ -121,25 +124,25 @@ export function ProductActionModal({
               </View>
             ) : (
               <>
-                {/* ── Primary: Compose Resources ── */}
+                {/* ── Primary: Log Sales ── */}
                 <Pressable
                   className="mb-3"
-                  onPress={() => { safeNavigate('ProductAddIngredient', { productId: product.id }); onClose(); }}
+                  onPress={() => { safeNavigate('SalesLogger', { productId: product.id }); onClose(); }}
                 >
                   <View className="bg-brand-900 h-16 rounded-[24px] flex-row items-center justify-center gap-3 shadow-lg border-[1.5px] border-brand-900">
-                    <Ionicons name="layers" size={20} color="white" />
-                    <Text className="text-[13px] font-black text-white uppercase tracking-widest">Compose Resources</Text>
+                    <Ionicons name="stats-chart-outline" size={20} color="white" />
+                    <Text className="text-[13px] font-black text-white uppercase tracking-widest">Log Sales</Text>
                   </View>
                 </Pressable>
 
-                {/* ── Secondary: Log Sales ── */}
+                {/* ── Secondary: Edit Product ── */}
                 <Pressable
                   className="mb-8"
-                  onPress={() => { safeNavigate('SalesLogger', { productId: product.id }); onClose(); }}
+                  onPress={() => { safeNavigate('ProductForm', { productId: product.id }); onClose(); }}
                 >
                   <View className="bg-brand-50 h-16 rounded-[24px] flex-row items-center justify-center gap-3 border-[1.5px] border-brand-100">
-                    <Ionicons name="stats-chart-outline" size={20} color="#14532d" />
-                    <Text className="text-[13px] font-black text-brand-900 uppercase tracking-widest">Log Sales</Text>
+                    <Ionicons name="create-outline" size={20} color="#14532d" />
+                    <Text className="text-[13px] font-black text-brand-900 uppercase tracking-widest">Edit Product</Text>
                   </View>
                 </Pressable>
 
@@ -153,11 +156,7 @@ export function ProductActionModal({
                   >
                     {/* Quick Actions */}
                     <ActionChip
-                      icon="create-outline"
-                      onPress={() => { safeNavigate('ProductForm', { productId: product.id }); onClose(); }}
-                    />
-                    <ActionChip
-                      icon={product.isPinned ? 'pin' : 'pin-outline'}
+                      icon={product.isPinned ? 'bookmark' : 'bookmark-outline'}
                       active={product.isPinned}
                       activeColor="#d97706"
                       onPress={() => { onPin(product.id); onClose(); }}
@@ -213,8 +212,6 @@ function ActionChip({
   isDestructive,
 }: {
   icon?: any;
-  colorBg?: string;
-  onPress: () => void;
   active?: boolean;
   activeColor?: string;
   isDestructive?: boolean;

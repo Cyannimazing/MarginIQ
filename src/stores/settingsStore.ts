@@ -16,6 +16,8 @@ const SETTINGS_KEYS = {
   onboardingCompleted: 'onboarding_completed',
   lastSalesLogType: 'last_sales_log_type',
   lastSalesInputType: 'last_sales_input_type',
+  tutorialStep: 'tutorial_step',
+  tutorialGuideTopic: 'tutorial_guide_topic',
 } as const;
 
 const DEFAULT_SETTINGS: AppSettings = {
@@ -31,6 +33,8 @@ const DEFAULT_SETTINGS: AppSettings = {
   onboardingCompleted: false,
   lastSalesLogType: 'daily',
   lastSalesInputType: 'Sold',
+  tutorialStep: 0,
+  tutorialGuideTopic: '',
 };
 
 const parseNumber = (value: string | undefined, fallback: number) => {
@@ -127,6 +131,8 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
         ),
         lastSalesLogType: (map[SETTINGS_KEYS.lastSalesLogType] as any) || DEFAULT_SETTINGS.lastSalesLogType,
         lastSalesInputType: (map[SETTINGS_KEYS.lastSalesInputType] as any) || DEFAULT_SETTINGS.lastSalesInputType,
+        tutorialStep: parseNumber(map[SETTINGS_KEYS.tutorialStep], DEFAULT_SETTINGS.tutorialStep),
+        tutorialGuideTopic: map[SETTINGS_KEYS.tutorialGuideTopic] || DEFAULT_SETTINGS.tutorialGuideTopic,
       } as AppSettings;
 
       set({ settings: hydrated, isLoading: false, isHydrated: true });
@@ -162,6 +168,8 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
         [SETTINGS_KEYS.onboardingCompleted]: String(nextSettings.onboardingCompleted),
         [SETTINGS_KEYS.lastSalesLogType]: nextSettings.lastSalesLogType,
         [SETTINGS_KEYS.lastSalesInputType]: nextSettings.lastSalesInputType,
+        [SETTINGS_KEYS.tutorialStep]: String(nextSettings.tutorialStep),
+        [SETTINGS_KEYS.tutorialGuideTopic]: nextSettings.tutorialGuideTopic || '',
       });
 
       set({ isLoading: false });

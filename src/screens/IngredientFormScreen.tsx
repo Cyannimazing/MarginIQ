@@ -18,6 +18,7 @@ import { formatMoney } from '../utils/currency';
 import { OptionChip } from '../components/ui/OptionChip';
 import { FormSection } from '../components/ui/FormSection';
 import { ActionModal } from '../components/ui/ActionModal';
+import { SpotlightOverlay } from '../components/ui/SpotlightOverlay';
 import { useState } from 'react';
 
 const ingredientSchema = z.object({
@@ -55,6 +56,9 @@ const QUICK_UNITS: IngredientUnit[] = ['pcs', 'g', 'kg', 'ml', 'liter', 'pack'];
 export function IngredientFormScreen({ route, navigation }: Props) {
   const ingredientId = route.params?.ingredientId;
   const currencyCode = useSettingsStore((state) => state.settings.currencyCode);
+  const tutorialStep = useSettingsStore((state) => state.settings.tutorialStep);
+  const tutorialGuideTopic = useSettingsStore((state) => state.settings.tutorialGuideTopic);
+  const saveSettings = useSettingsStore((state) => state.saveSettings);
 
   // Load data directly from DB — no store subscription = no concurrent re-render crash
   const [existingIngredient, setExistingIngredient] = useState<any>(null);
@@ -159,6 +163,9 @@ export function IngredientFormScreen({ route, navigation }: Props) {
         await dbUpdateIngredient(ingredientId, payload);
       } else {
         await dbAddIngredient(payload);
+        if (tutorialStep === 1 && tutorialGuideTopic === 't-resources') {
+          await saveSettings({ tutorialStep: 1, tutorialGuideTopic: 't-resources:done' });
+        }
       }
       // Delay by two frames so Fabric finishes committing the isSubmitting
       // re-render before the unmount+navigation is queued
@@ -425,6 +432,21 @@ export function IngredientFormScreen({ route, navigation }: Props) {
         }}
         onSecondaryAction={() => setModalState((s) => ({ ...s, visible: false }))}
       />
+
+      {(tutorialStep === 4 || (tutorialStep === 1 && tutorialGuideTopic === 't-resources')) && (
+        <SpotlightOverlay
+          message={
+            tutorialStep === 1 && tutorialGuideTopic === 't-resources'
+              ? 'Enter the resource name, quantity, and price. Choose a tag, then tap Register.'
+              : 'Give your resource a name, set the quantity and price, then tap Register Resource to save it. You can add as many as you need!'
+          }
+          onSkip={() =>
+            tutorialStep === 1 && tutorialGuideTopic === 't-resources'
+              ? void saveSettings({ tutorialStep: 0, tutorialGuideTopic: '' })
+              : void saveSettings({ tutorialStep: 0 })
+          }
+        />
+      )}
     </View>
   );
 }

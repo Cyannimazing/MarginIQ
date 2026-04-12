@@ -14,6 +14,7 @@ import { SalesLoggerScreen } from '../screens/SalesLoggerScreen';
 import DashboardScreen from '../screens/DashboardScreen';
 import { AnalyticsScreen } from '../screens/AnalyticsScreen';
 import { SettingsScreen } from '../screens/SettingsScreen';
+import { HelpSupportScreen } from '../screens/HelpSupportScreen';
 import { MonthlyOverheadBreakdownScreen } from '../screens/MonthlyOverheadBreakdownScreen';
 import { ResourcesLibraryScreen } from '../screens/ResourcesLibraryScreen';
 import { useUIStore } from '../stores/uiStore';
@@ -25,7 +26,7 @@ function CustomHeader({ title, back, navigation, options, route }: any) {
   const HeaderRight = options.headerRight;
   const HeaderLeft = options.headerLeft;
 
-  const PRIMARY_SCREENS = ['Dashboard', 'Analytics', 'Settings', 'Reports', 'Trash'];
+  const PRIMARY_SCREENS = ['Dashboard', 'Analytics', 'Settings', 'Reports', 'Trash', 'ResourcesLibrary', 'HelpSupport'];
   const isPrimary = PRIMARY_SCREENS.includes(route.name);
 
   return (
@@ -114,6 +115,11 @@ export function RootNavigator({ onboardingCompleted }: RootNavigatorProps) {
         name="ResourcesLibrary"
         component={ResourcesLibraryScreen}
         options={{ title: 'Resources Library' }}
+      />
+      <Stack.Screen
+        name="HelpSupport"
+        component={HelpSupportScreen}
+        options={{ title: 'Help Center' }}
       />
 
       {/* Stack screens on top of tabs */}

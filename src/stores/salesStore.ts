@@ -54,5 +54,6 @@ export const useSalesStore = create<SalesState>((set, get) => ({
       throw error;
     }
   },
-  getMonthlySale: (productId, month) => undefined,
+  getMonthlySale: (productId, month) =>
+    get().monthlySales.find((s) => s.productId === productId && s.month === month),
 }));

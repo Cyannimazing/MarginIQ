@@ -18,6 +18,7 @@ import { normalizeUnitsPerSale } from '../utils/productEconomics';
 import { OptionChip } from '../components/ui/OptionChip';
 import { FormSection } from '../components/ui/FormSection';
 import { ActionModal } from '../components/ui/ActionModal';
+import { SpotlightOverlay } from '../components/ui/SpotlightOverlay';
 import { safeGoBack, safeNavigate } from '../navigation/navigationService';
 
 const addIngredientSchema = z.object({
@@ -48,6 +49,12 @@ const COST_TYPE_LABELS: Record<string, string> = {
 
 export function ProductAddIngredientScreen({ route, navigation }: Props) {
   const insets = useSafeAreaInsets();
+  const allowExitRef = React.useRef(false);
+  const pendingBackActionRef = React.useRef<any>(null);
+  const hasCommittedRef = React.useRef(false);
+  const hasSnapshotRef = React.useRef(false);
+  const initialLinksRef = React.useRef<any[]>([]);
+  const initialProductMetaRef = React.useRef<{ unitsPerSale: number; saleUnitLabel: string; batchSize: number } | null>(null);
   const { productId, editLinkId, initialIngredientId, initialQuantity, initialCostType, initialItems } = route.params;
   const pId = Number(productId);
 
@@ -63,6 +70,8 @@ export function ProductAddIngredientScreen({ route, navigation }: Props) {
   const product = useProductStore((state) => state.products.find(p => p.id === pId));
   const editProduct = useProductStore((state) => state.editProduct);
   const currencyCode = useSettingsStore((state) => state.settings.currencyCode);
+  const tutorialStep = useSettingsStore((state) => state.settings.tutorialStep);
+  const saveSettings = useSettingsStore((state) => state.saveSettings);
 
 
   const getTrueUnitCost = (pi: any) => {
@@ -260,11 +269,43 @@ export function ProductAddIngredientScreen({ route, navigation }: Props) {
     });
   }, [productId, editLinkId, initialIngredientId, initialQuantity, initialCostType, initialItems, product, reset]);
 
-  // Initial load
+  // Initial load + snapshot. Snapshot is used to restore state when user leaves without Commit.
   React.useEffect(() => {
-    void loadIngredients();
-    void loadProductIngredients(productId);
-  }, [loadIngredients, loadProductIngredients, productId]);
+    let isMounted = true;
+    const init = async () => {
+      await loadIngredients();
+      await loadProductIngredients(productId);
+      if (!isMounted || hasSnapshotRef.current) return;
+
+      const store = useProductStore.getState();
+      const freshLinks = store.getProductIngredients(pId) || [];
+      const freshProduct = store.products.find((p: any) => p.id === pId);
+
+      initialLinksRef.current = freshLinks.map((pi: any) => ({
+        id: pi.id,
+        ingredientId: pi.ingredientId,
+        quantityUsed: Number(pi.quantityUsed) || 0,
+        usageMode: pi.usageMode,
+        usageRatio: Number(pi.usageRatio) || 0,
+        costType: pi.costType,
+      }));
+
+      if (freshProduct) {
+        initialProductMetaRef.current = {
+          unitsPerSale: Number((freshProduct as any).unitsPerSale) || 1,
+          saleUnitLabel: String((freshProduct as any).saleUnitLabel || ''),
+          batchSize: Number((freshProduct as any).batchSize) || 1,
+        };
+      }
+
+      hasSnapshotRef.current = true;
+    };
+
+    void init();
+    return () => {
+      isMounted = false;
+    };
+  }, [loadIngredients, loadProductIngredients, productId, pId]);
 
   // Reload after returning from IngredientFormScreen
   React.useEffect(() => {
@@ -274,6 +315,94 @@ export function ProductAddIngredientScreen({ route, navigation }: Props) {
     });
     return unsub;
   }, [navigation, loadIngredients, loadProductIngredients, productId]);
+
+  const rollbackUncommittedChanges = useCallback(async () => {
+    if (hasCommittedRef.current || !hasSnapshotRef.current) return;
+
+    const originalLinks = initialLinksRef.current;
+    const currentLinks = useProductStore.getState().getProductIngredients(pId) || [];
+
+    const originalById = new Map(originalLinks.map((pi: any) => [pi.id, pi]));
+    const currentById = new Map(currentLinks.map((pi: any) => [pi.id, pi]));
+
+    for (const current of currentLinks) {
+      if (!originalById.has(current.id)) {
+        await removeIngredientFromProduct(pId, current.id);
+      }
+    }
+
+    for (const original of originalLinks) {
+      const current = currentById.get(original.id);
+      if (!current) {
+        await addIngredientToProduct({
+          productId: pId,
+          ingredientId: original.ingredientId,
+          quantityUsed: Math.max(Number(original.quantityUsed) || 0, 0),
+          usageMode: original.usageMode,
+          usageRatio: Number(original.usageRatio) || 0,
+          costType: original.costType,
+        } as any);
+      } else {
+        await editProductIngredient(pId, original.id, {
+          ingredientId: original.ingredientId,
+          quantityUsed: Math.max(Number(original.quantityUsed) || 0, 0),
+          usageMode: original.usageMode,
+          usageRatio: Number(original.usageRatio) || 0,
+          costType: original.costType,
+        });
+      }
+    }
+
+    const originalMeta = initialProductMetaRef.current;
+    if (originalMeta) {
+      const freshProduct = useProductStore.getState().products.find((p: any) => p.id === pId);
+      if (freshProduct) {
+        await editProduct(pId, {
+          ...freshProduct,
+          unitsPerSale: originalMeta.unitsPerSale,
+          saleUnitLabel: originalMeta.saleUnitLabel,
+          batchSize: originalMeta.batchSize,
+        } as any);
+      }
+    }
+
+    await loadProductIngredients(productId);
+  }, [pId, productId, addIngredientToProduct, editProductIngredient, removeIngredientFromProduct, editProduct, loadProductIngredients]);
+
+  // Intercept any back navigation (header back, Android back, gesture) to avoid silent data loss.
+  React.useEffect(() => {
+    const unsub = navigation.addListener('beforeRemove', (e) => {
+      if (allowExitRef.current) return;
+
+      e.preventDefault();
+      pendingBackActionRef.current = e.data.action;
+      setModalState({
+        visible: true,
+        title: 'Discard composition changes?',
+        message: 'Linked resources are not saved until you tap Commit. Leave this screen anyway?',
+        primaryText: 'Leave',
+        secondaryText: 'Stay',
+        isDestructive: true,
+        onPrimary: async () => {
+          setModalState((prev) => ({ ...prev, visible: false }));
+          await rollbackUncommittedChanges();
+          allowExitRef.current = true;
+          const action = pendingBackActionRef.current;
+          pendingBackActionRef.current = null;
+          if (action) {
+            navigation.dispatch(action);
+          } else {
+            safeGoBack();
+          }
+        },
+        onSecondary: () => {
+          pendingBackActionRef.current = null;
+          setModalState((prev) => ({ ...prev, visible: false }));
+        },
+      });
+    });
+    return unsub;
+  }, [navigation, rollbackUncommittedChanges]);
 
   const selectedItems = watch('items') || [];
   const tabSelectedCount = libraryTab === 'packaging'
@@ -492,7 +621,7 @@ export function ProductAddIngredientScreen({ route, navigation }: Props) {
       if (libraryTab === 'raw') {
         setLibraryTab('packaging');
       } else {
-        safeGoBack();
+        showAlert('Composition Saved', 'Your linked resources are saved. Tap Commit when you are done.');
       }
     } catch (err: any) {
       console.error(err);
@@ -502,38 +631,46 @@ export function ProductAddIngredientScreen({ route, navigation }: Props) {
 
   if (!ingredients.length && !productIngredients.length) {
     return (
-      <View style={{ flex: 1, alignItems: 'center', backgroundColor: 'rgba(20, 83, 45, 0.01)', paddingHorizontal: 32, paddingTop: 96 }}>
-        <View style={{ height: 80, width: 80, borderRadius: 40, backgroundColor: '#f0fdf4', alignItems: 'center', justifyContent: 'center', marginBottom: 24 }}>
-           <Ionicons name="cube-outline" size={40} color="#86efac" />
-        </View>
-        <Text style={{ textAlign: 'center', fontSize: 18, fontWeight: '900', color: '#1e293b', marginBottom: 8 }}>Resource Library Empty</Text>
-        <Text style={{ textAlign: 'center', fontSize: 12, color: '#94a3b8', fontWeight: '500', lineHeight: 20, marginBottom: 32 }}>
-          You need to add resources to your library before you can link them to business compositions.
-        </Text>
-        <Pressable
-          onPress={() => safeNavigate('IngredientForm', { productId })}
-          style={{ marginTop: 20 }}
-        >
-          <View style={{
-            borderRadius: 32,
-            backgroundColor: '#14532d',
-            paddingHorizontal: 32,
-            paddingVertical: 16,
-            shadowColor: '#14532d',
-            shadowOffset: { width: 0, height: 4 },
-            shadowOpacity: 0.2,
-            shadowRadius: 8,
-            elevation: 4,
-          }}>
-            <Text style={{
-              fontWeight: '900',
-              color: '#ffffff',
-              fontSize: 12,
-              letterSpacing: 2,
-              textTransform: 'uppercase',
-            }}>Create Resource</Text>
+      <View style={{ flex: 1, backgroundColor: 'rgba(20, 83, 45, 0.01)' }}>
+        <View style={{ flex: 1, alignItems: 'center', paddingHorizontal: 32, paddingTop: 96 }}>
+          <View style={{ height: 80, width: 80, borderRadius: 40, backgroundColor: '#f0fdf4', alignItems: 'center', justifyContent: 'center', marginBottom: 24 }}>
+             <Ionicons name="cube-outline" size={40} color="#86efac" />
           </View>
-        </Pressable>
+          <Text style={{ textAlign: 'center', fontSize: 18, fontWeight: '900', color: '#1e293b', marginBottom: 8 }}>Resource Library Empty</Text>
+          <Text style={{ textAlign: 'center', fontSize: 12, color: '#94a3b8', fontWeight: '500', lineHeight: 20, marginBottom: 32 }}>
+            You need to add resources to your library before you can link them to business compositions.
+          </Text>
+          <Pressable
+            onPress={() => safeNavigate('IngredientForm', { productId })}
+            style={{ marginTop: 20 }}
+          >
+            <View style={{
+              borderRadius: 32,
+              backgroundColor: '#14532d',
+              paddingHorizontal: 32,
+              paddingVertical: 16,
+              shadowColor: '#14532d',
+              shadowOffset: { width: 0, height: 4 },
+              shadowOpacity: 0.2,
+              shadowRadius: 8,
+              elevation: 4,
+            }}>
+              <Text style={{
+                fontWeight: '900',
+                color: '#ffffff',
+                fontSize: 12,
+                letterSpacing: 2,
+                textTransform: 'uppercase',
+              }}>Create Resource</Text>
+            </View>
+          </Pressable>
+        </View>
+        {tutorialStep === 4 && (
+          <SpotlightOverlay
+            message="You don't have any resources yet! Tap Create Resource to add your first ingredient or packaging. Once you're done, come back here to select it."
+            onSkip={() => void saveSettings({ tutorialStep: 0, tutorialGuideTopic: '' })}
+          />
+        )}
       </View>
     );
   }
@@ -547,7 +684,12 @@ export function ProductAddIngredientScreen({ route, navigation }: Props) {
         <ScrollView 
           style={{ flex: 1, paddingHorizontal: 24 }} 
           keyboardShouldPersistTaps="handled"
-          contentContainerStyle={{ paddingBottom: selectedItems.length > 0 ? Math.max(insets.bottom, 120) : Math.max(insets.bottom, 40) }}
+          contentContainerStyle={{
+            paddingBottom:
+              (tabSelectedCount > 0 || productIngredients.length > 0)
+                ? Math.max(insets.bottom, 184)
+                : Math.max(insets.bottom, 40),
+          }}
         >
           {/* ── Product Context Header ── */}
           <View style={{ marginTop: 24, marginBottom: 20, borderRadius: 24, backgroundColor: '#14532d', paddingHorizontal: 20, paddingVertical: 20 }}>
@@ -1511,7 +1653,7 @@ export function ProductAddIngredientScreen({ route, navigation }: Props) {
       </KeyboardAvoidingView>
 
       {/* Floating Action Button */}
-      {tabSelectedCount > 0 && (
+      {(tabSelectedCount > 0 || productIngredients.length > 0) && (
         <View 
           style={{
             position: 'absolute',
@@ -1579,6 +1721,37 @@ export function ProductAddIngredientScreen({ route, navigation }: Props) {
               </Text>
             </View>
           </Pressable>
+
+          <Pressable
+            onPress={() => {
+              hasCommittedRef.current = true;
+              allowExitRef.current = true;
+              safeGoBack();
+            }}
+            disabled={isSubmitting || productIngredients.length === 0}
+            style={{ marginTop: 10 }}
+          >
+            <View style={{
+              height: 48,
+              alignItems: 'center',
+              justifyContent: 'center',
+              borderRadius: 24,
+              borderWidth: 1,
+              borderColor: '#14532d',
+              backgroundColor: '#ffffff',
+              opacity: isSubmitting || productIngredients.length === 0 ? 0.5 : 1,
+            }}>
+              <Text style={{
+                fontWeight: '900',
+                color: '#14532d',
+                fontSize: 12,
+                letterSpacing: 1.5,
+                textTransform: 'uppercase',
+              }}>
+                Commit
+              </Text>
+            </View>
+          </Pressable>
         </View>
       )}
       <ActionModal
@@ -1591,6 +1764,17 @@ export function ProductAddIngredientScreen({ route, navigation }: Props) {
         onPrimaryAction={modalState.onPrimary}
         onSecondaryAction={modalState.onSecondary}
       />
+
+      {tutorialStep === 4 && (
+        <SpotlightOverlay
+          message={
+            !ingredients.length
+              ? "You don't have any resources yet! Tap Create Resource to add your first ingredient or packaging. Once you're done, come back here to select it."
+              : "Select your ingredients and packaging from the list. You can also tap New Resource if you need to add more. Once you've configured them, tap the Commit button at the bottom to save your composition."
+          }
+          onSkip={() => void saveSettings({ tutorialStep: 0, tutorialGuideTopic: '' })}
+        />
+      )}
     </View>
   );
 }

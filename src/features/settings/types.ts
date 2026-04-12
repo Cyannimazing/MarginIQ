@@ -13,4 +13,6 @@ export type AppSettings = {
   onboardingCompleted: boolean;
   lastSalesLogType: 'daily' | 'weekly' | 'monthly';
   lastSalesInputType: 'Sold' | 'Discounted' | 'Unsold';
+  tutorialStep: number;
+  tutorialGuideTopic?: string;
 };

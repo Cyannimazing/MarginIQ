@@ -8,11 +8,12 @@ import {
   View,
   StyleSheet,
   Image,
+  Linking,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { StackActions } from '@react-navigation/native';
+import Constants from 'expo-constants';
 import { useUIStore } from '../stores/uiStore';
-import { navigationRef, safeNavigate } from '../navigation/navigationService';
+import { navigationRef, reset } from '../navigation/navigationService';
 
 type MenuItem = {
   id: string;
@@ -34,6 +35,7 @@ type SidebarProps = {
 
 export function Sidebar({ isOpen, onClose, currentView, onSelectView }: SidebarProps) {
   const currentRouteName = useUIStore((state) => state.currentRoute);
+  const appVersion = Constants.expoConfig?.version ?? '1.0.0';
 
   const slideAnim = useRef(new Animated.Value(-SIDEBAR_WIDTH)).current;
   const opacityAnim = useRef(new Animated.Value(0)).current;
@@ -57,13 +59,13 @@ export function Sidebar({ isOpen, onClose, currentView, onSelectView }: SidebarP
     { id: 'active', label: 'Products', icon: 'cube-outline', activeIcon: 'cube' },
     { id: 'analytics', label: 'Analytics', icon: 'bar-chart-outline', activeIcon: 'bar-chart' },
     { id: 'settings', label: 'Business Profile', icon: 'business-outline', activeIcon: 'business' },
-    { id: 'resources', label: 'Resources Library', icon: 'library-outline', activeIcon: 'library', route: 'ResourcesLibrary' },
+    { id: 'resources', label: 'Resources Library', icon: 'nutrition-outline', activeIcon: 'nutrition', route: 'ResourcesLibrary' },
     { id: 'archived', label: 'Archive', icon: 'archive-outline', activeIcon: 'archive' },
     { id: 'trash', label: 'Trash', icon: 'trash-outline', activeIcon: 'trash' },
   ];
 
   const secondaryItems: MenuItem[] = [
-    { id: 'help', label: 'Help & Support', icon: 'help-circle-outline' },
+    { id: 'help', label: 'Help Center', icon: 'help-circle-outline', route: 'HelpSupport' },
     { id: 'feedback', label: 'Send Feedback', icon: 'chatbox-ellipses-outline' },
   ];
 
@@ -109,19 +111,20 @@ export function Sidebar({ isOpen, onClose, currentView, onSelectView }: SidebarP
               <Pressable
                 key={item.id}
                 onPress={() => {
+                  const activeRoute = navigationRef.getCurrentRoute()?.name;
                   if (item.id === 'settings') {
-                    safeNavigate('Settings');
+                    if (activeRoute !== 'Settings') reset('Settings');
                     onClose();
                   } else if (item.id === 'analytics') {
-                    safeNavigate('Analytics');
+                    if (activeRoute !== 'Analytics') reset('Analytics');
                     onClose();
                   } else if (item.route === 'ResourcesLibrary') {
-                    safeNavigate('ResourcesLibrary');
+                    if (activeRoute !== 'ResourcesLibrary') reset('ResourcesLibrary');
                     onClose();
                   } else {
                     onSelectView(item.id as any);
-                    if (navigationRef.getCurrentRoute()?.name !== 'Dashboard') {
-                      safeNavigate('Dashboard');
+                    if (activeRoute !== 'Dashboard') {
+                      reset('Dashboard');
                     }
                     onClose();
                   }
@@ -150,8 +153,16 @@ export function Sidebar({ isOpen, onClose, currentView, onSelectView }: SidebarP
               <Pressable
                 key={item.id}
                 onPress={() => {
+                  const activeRoute = navigationRef.getCurrentRoute()?.name;
+                  if (item.id === 'feedback') {
+                    Linking.openURL('mailto:devpuppies010@gmail.com?subject=MarginIQ%20Feedback&body=Hi%20MarginIQ%20Team,%0A%0AHere%20is%20my%20feedback:');
+                    onClose();
+                    return;
+                  }
                   if (item.route) {
-                    safeNavigate(item.route);
+                    if (activeRoute !== item.route) {
+                      reset(item.route);
+                    }
                     onClose();
                   }
                 }}
@@ -172,7 +183,7 @@ export function Sidebar({ isOpen, onClose, currentView, onSelectView }: SidebarP
         </ScrollView>
 
         <View style={s.footer}>
-          <Text style={s.versionText}>v1.0.0</Text>
+          <Text style={s.versionText}>v{appVersion}</Text>
         </View>
       </Animated.View>
     </View>
@@ -203,24 +214,24 @@ const s = StyleSheet.create({
   },
   header: {
     paddingHorizontal: 24,
-    paddingTop: 56,
-    paddingBottom: 24,
+    paddingTop: 48,
+    paddingBottom: 18,
     borderBottomWidth: 1,
     borderBottomColor: '#f1f5f9',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 12,
+    gap: 10,
   },
   logoImage: {
-    width: 48,
-    height: 48,
+    width: 34,
+    height: 34,
   },
   logoName: {
-    fontSize: 24,
+    fontSize: 18,
     fontWeight: '900',
     color: '#14532d',
-    letterSpacing: -1,
+    letterSpacing: -0.4,
   },
   logoSubtitle: {
     fontSize: 9,

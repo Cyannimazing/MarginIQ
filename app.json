@@ -2,14 +2,14 @@
   "expo": {
     "name": "MarginIQ",
     "slug": "marginiq",
-    "version": "1.0.0",
+    "version": "2.0.0",
     "orientation": "portrait",
     "icon": "./assets/ICONAPK.png",
     "userInterfaceStyle": "light",
     "splash": {
       "image": "./assets/ICON-MARGINIQ.png",
       "resizeMode": "contain",
-      "backgroundColor": "#052e16"
+      "backgroundColor": "#ffffff"
     },
     "ios": {
       "supportsTablet": true

@@ -31,8 +31,6 @@ export function ActionModal({
       onRequestClose={onSecondaryAction || onPrimaryAction}
     >
       <View style={s.overlay}>
-        <Pressable style={s.dismiss} onPress={onSecondaryAction || onPrimaryAction} />
-        
         <View style={s.card}>
           <Text style={s.title}>{title}</Text>
           <Text style={s.subtitle}>{message}</Text>
@@ -71,9 +69,6 @@ const s = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     padding: 24,
-  },
-  dismiss: {
-    ...StyleSheet.absoluteFillObject,
   },
   card: {
     width: '100%',

@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx tsc:*)",
+      "Bash(echo \"EXIT:$?\")",
+      "Bash(find /c/Users/cyril/Desktop/PERSONAL/MarginIQ/src -name \"*.tsx\" -exec grep -l \"IngredientForm\\\\|add.*ingredient\\\\|plus\\\\|add-circle\" {} \\\\;)",
+      "Bash(pnpm tsc:*)",
+      "Bash(npx expo:*)"
+    ]
+  }
+}

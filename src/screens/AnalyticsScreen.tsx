@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Modal, Pressable, ScrollView, Text, View } from 'react-native';
+import { ActivityIndicator, Modal, Pressable, ScrollView, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
@@ -60,6 +60,7 @@ function periodMonthsFor(preset: PeriodPreset): string[] {
 
 export function AnalyticsScreen({ navigation: _navigation }: Props) {
   const products = useProductStore((s) => s.products);
+  const isLoading = useProductStore((s) => s.isLoading);
   const loadProducts = useProductStore((s) => s.loadProducts);
   const monthlySales = useSalesStore((s) => s.monthlySales);
   const loadMonthlySales = useSalesStore((s) => s.loadMonthlySales);
@@ -134,6 +135,12 @@ export function AnalyticsScreen({ navigation: _navigation }: Props) {
   const totalNetProfit = totalGrossProfit - totalFixedOverhead;
   const netMargin = totalRevenue > 0 ? roundTo((totalNetProfit / totalRevenue) * 100) : 0;
   const totalUnitsSold = useMemo(() => filteredSales.reduce((s, e) => s + e.unitsSold, 0), [filteredSales]);
+  const totalBatches = useMemo(() => filteredSales.reduce((sum, e) => {
+    const prod = products.find((p) => p.id === e.productId);
+    const batchSize = Math.max(Number(prod?.batchSize) || 1, 1);
+    const produced = (e.unitsSold ?? 0) + (e.unitsSoldDiscounted ?? 0) + (e.unitsUnsold ?? 0);
+    return sum + produced / batchSize;
+  }, 0), [filteredSales, products]);
   const avgMonthlyProfit =
     monthlyAggs.length > 0 ? totalNetProfit / monthlyAggs.length : 0;
 
@@ -150,21 +157,25 @@ export function AnalyticsScreen({ navigation: _navigation }: Props) {
   const productBreakdown = useMemo(() => {
     const map = new Map<
       number,
-      { name: string; revenue: number; cost: number; profit: number; units: number }
+      { name: string; revenue: number; cost: number; profit: number; units: number; batches: number }
     >();
     for (const s of filteredSales) {
       const prod = products.find((p) => p.id === s.productId);
+      const batchSize = Math.max(Number(prod?.batchSize) || 1, 1);
+      const produced = (s.unitsSold ?? 0) + (s.unitsSoldDiscounted ?? 0) + (s.unitsUnsold ?? 0);
       const cur = map.get(s.productId) ?? {
         name: prod?.name ?? `#${s.productId}`,
         revenue: 0,
         cost: 0,
         profit: 0,
         units: 0,
+        batches: 0,
       };
       cur.revenue += s.actualRevenue;
       cur.cost += s.ingredientCost > 0 ? s.ingredientCost : s.actualCost;
       cur.profit += s.actualProfit;
       cur.units += s.unitsSold;
+      cur.batches += produced / batchSize;
       map.set(s.productId, cur);
     }
     return [...map.values()].sort((a, b) => b.profit - a.profit);
@@ -190,6 +201,14 @@ export function AnalyticsScreen({ navigation: _navigation }: Props) {
   const hasData = filteredSales.length > 0;
   const maxBarProfit = Math.max(...monthlyAggs.map((a) => Math.abs(a.profit)), 1);
   const activeProducts = products.filter((p) => !p.isArchived);
+
+  if (isLoading && products.length === 0 && monthlySales.length === 0) {
+    return (
+      <View style={{ flex: 1, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center' }}>
+        <ActivityIndicator size="large" color="#14532d" />
+      </View>
+    );
+  }
 
   return (
     <View className="flex-1 bg-white">
@@ -530,6 +549,33 @@ export function AnalyticsScreen({ navigation: _navigation }: Props) {
                       <Text style={{ fontSize: 12, fontWeight: '700', color: '#64748b' }}>Units Sold</Text>
                       <Text style={{ fontSize: 13, fontWeight: '900', color: '#0f172a' }}>{pd.units} units</Text>
                     </View>
+                    <View style={{ height: 1, backgroundColor: '#f1f5f9' }} />
+                    {(() => {
+                      const prod = products.find((p) => p.name === pd.name);
+                      const batchSize = Math.max(Number(prod?.batchSize) || 1, 1);
+                      const wholeBatches = Math.floor(pd.batches);
+                      const remainder = Math.round((pd.batches - wholeBatches) * batchSize);
+                      const toNext = remainder > 0 ? batchSize - remainder : 0;
+                      return (
+                        <>
+                          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <Text style={{ fontSize: 12, fontWeight: '700', color: '#64748b' }}>Batches Produced</Text>
+                            <Text style={{ fontSize: 13, fontWeight: '900', color: '#0f172a' }}>
+                              {wholeBatches} {wholeBatches === 1 ? 'batch' : 'batches'}{remainder > 0 ? ` + ${remainder} pcs` : ''}
+                            </Text>
+                          </View>
+                          {toNext > 0 && (
+                            <>
+                              <View style={{ height: 1, backgroundColor: '#f1f5f9' }} />
+                              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <Text style={{ fontSize: 12, fontWeight: '700', color: '#64748b' }}>To Next Full Batch</Text>
+                                <Text style={{ fontSize: 13, fontWeight: '900', color: '#f59e0b' }}>{toNext} pcs left</Text>
+                              </View>
+                            </>
+                          )}
+                        </>
+                      );
+                    })()}
                     <View style={{ height: 1, backgroundColor: '#f1f5f9' }} />
                     <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
                       <Text style={{ fontSize: 12, fontWeight: '700', color: '#64748b' }}>Net Margin</Text>

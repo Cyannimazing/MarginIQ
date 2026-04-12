@@ -2,7 +2,7 @@ import React from 'react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
-import { Alert, Pressable, ScrollView, Share, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Alert, Pressable, ScrollView, Share, Text, TextInput, View } from 'react-native';
 import { useProductStore } from '../stores/productStore';
 import { useSalesStore } from '../stores/salesStore';
 import { useSettingsStore } from '../stores/settingsStore';
@@ -204,16 +204,20 @@ export function ReportsScreen() {
   const groupedByMonth = useMemo(() => {
     const map = new Map<
       string,
-      { revenue: number; cost: number; profit: number; sold: number; unsold: number }
+      { revenue: number; cost: number; profit: number; sold: number; unsold: number; batches: number }
     >();
 
     for (const entry of filteredEntries) {
+      const product = products.find((p) => p.id === entry.productId);
+      const batchSize = Math.max(Number(product?.batchSize) || 1, 1);
+      const produced = (entry.unitsSold ?? 0) + (entry.unitsSoldDiscounted ?? 0) + (entry.unitsUnsold ?? 0);
       const current = map.get(entry.month) ?? {
         revenue: 0,
         cost: 0,
         profit: 0,
         sold: 0,
         unsold: 0,
+        batches: 0,
       };
 
       current.revenue += entry.actualRevenue;
@@ -221,6 +225,7 @@ export function ReportsScreen() {
       current.profit += entry.actualProfit;
       current.sold += entry.unitsSold;
       current.unsold += entry.unitsUnsold;
+      current.batches += produced / batchSize;
       map.set(entry.month, current);
     }
 
@@ -230,7 +235,7 @@ export function ReportsScreen() {
         ...metrics,
       }))
       .sort((a, b) => b.month.localeCompare(a.month));
-  }, [filteredEntries]);
+  }, [filteredEntries, products]);
 
   const groupedByProduct = useMemo(() => {
     const map = new Map<
@@ -244,22 +249,26 @@ export function ReportsScreen() {
         profit: number;
         sold: number;
         unsold: number;
+        batches: number;
       }
     >();
 
     for (const entry of filteredEntries) {
       const product = products.find((item) => item.id === entry.productId);
+      const batchSize = Math.max(Number(product?.batchSize) || 1, 1);
+      const produced = (entry.unitsSold ?? 0) + (entry.unitsSoldDiscounted ?? 0) + (entry.unitsUnsold ?? 0);
       const current = map.get(entry.productId) ?? {
         productName: product?.name ?? `Product #${entry.productId}`,
         pricingMethod: product?.pricingMethod ?? 'margin',
-        targetValue: product?.pricingMethod === 'fixed' 
-          ? formatMoney(product.targetMargin, currencyCode) 
+        targetValue: product?.pricingMethod === 'fixed'
+          ? formatMoney(product.targetMargin, currencyCode)
           : `${((product?.targetMargin ?? 0) * 100).toFixed(1)}%`,
         revenue: 0,
         cost: 0,
         profit: 0,
         sold: 0,
         unsold: 0,
+        batches: 0,
       };
 
       current.revenue += entry.actualRevenue;
@@ -267,6 +276,7 @@ export function ReportsScreen() {
       current.profit += entry.actualProfit;
       current.sold += entry.unitsSold;
       current.unsold += entry.unitsUnsold;
+      current.batches += produced / batchSize;
       map.set(entry.productId, current);
     }
 
@@ -398,6 +408,14 @@ export function ReportsScreen() {
     }
   };
 
+  if (isLoadingSales && monthlySales.length === 0) {
+    return (
+      <View style={{ flex: 1, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center' }}>
+        <ActivityIndicator size="large" color="#14532d" />
+      </View>
+    );
+  }
+
   return (
     <View className="flex-1 bg-white">
       <ScrollView className="flex-1 bg-white">
@@ -515,6 +533,9 @@ export function ReportsScreen() {
                     <Text className="mt-1 text-[11px] text-slate-600">
                       Sold {item.sold} • Unsold {item.unsold}
                     </Text>
+                    <Text className="mt-1 text-[11px] text-slate-600">
+                      Batches Produced {item.batches.toFixed(2)}
+                    </Text>
                   </View>
                 ))}
               </View>
@@ -541,6 +562,9 @@ export function ReportsScreen() {
                     </Text>
                     <Text className="mt-1 text-[11px] text-slate-600">
                       Sold {item.sold} • Unsold {item.unsold}
+                    </Text>
+                    <Text className="mt-1 text-[11px] text-slate-600">
+                      Batches Produced {item.batches.toFixed(2)}
                     </Text>
                   </View>
                 ))}

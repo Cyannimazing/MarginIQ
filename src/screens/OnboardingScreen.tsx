@@ -1,7 +1,7 @@
 import React from 'react';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useMemo, useState } from 'react';
-import { FlatList, Modal, Pressable, Text, TextInput, View, Image } from 'react-native';
+import { FlatList, Modal, Pressable, ScrollView, Text, TextInput, View, Image } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { CURRENCIES } from '../constants/currencies';
@@ -11,7 +11,15 @@ import { ActionModal } from '../components/ui/ActionModal';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Onboarding'>;
 
-const TOTAL_STEPS = 2;
+const STEP_TITLES = [
+  "Let's set up\nyour business",
+  'Choose your\ncurrency',
+];
+
+const STEP_SUBTITLES = [
+  'Step 1 — Business identity',
+  'Step 2 — Financial settings',
+];
 
 export function OnboardingScreen({ navigation }: Props) {
   const settings = useSettingsStore((state) => state.settings);
@@ -39,22 +47,31 @@ export function OnboardingScreen({ navigation }: Props) {
     );
   }, [currencyQuery]);
 
+  const totalSteps = 2;
+
   const handleNext = () => {
-    if (!businessName.trim()) {
+    if (step === 1 && !businessName.trim()) {
       setModalState({ visible: true, title: 'Business Name Required', message: 'Please enter your business name to continue.' });
       return;
     }
-    setStep(2);
+    setStep(step + 1);
   };
 
   const handleFinish = async () => {
     try {
-      await saveSettings({ businessName: businessName.trim(), currencyCode, onboardingCompleted: true });
+      await saveSettings({
+        businessName: businessName.trim(),
+        currencyCode,
+        onboardingCompleted: true,
+        tutorialStep: -1,
+      });
       navigation.reset({ index: 0, routes: [{ name: 'Dashboard' }] });
     } catch {
       setModalState({ visible: true, title: 'Save Failed', message: 'Unable to save your settings. Please try again.' });
     }
   };
+
+  const isLastStep = step === totalSteps;
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: '#ffffff' }} edges={['top', 'bottom']}>
@@ -69,15 +86,15 @@ export function OnboardingScreen({ navigation }: Props) {
           <Text style={{ fontSize: 22, fontWeight: '900', color: '#ffffff', letterSpacing: -0.5 }}>MarginIQ</Text>
         </View>
         <Text style={{ fontSize: 26, fontWeight: '900', color: '#ffffff', letterSpacing: -0.5, lineHeight: 32 }}>
-          {step === 1 ? "Let's set up\nyour business" : 'Choose your\ncurrency'}
+          {STEP_TITLES[step - 1]}
         </Text>
         <Text style={{ fontSize: 13, color: '#86efac', marginTop: 8, fontWeight: '500' }}>
-          {step === 1 ? 'Step 1 of 2 — Business identity' : 'Step 2 of 2 — Financial settings'}
+          {STEP_SUBTITLES[step - 1]}
         </Text>
 
         {/* Step bar */}
         <View style={{ flexDirection: 'row', gap: 6, marginTop: 20 }}>
-          {Array.from({ length: TOTAL_STEPS }).map((_, i) => (
+          {Array.from({ length: totalSteps }).map((_, i) => (
             <View
               key={i}
               style={{
@@ -92,7 +109,9 @@ export function OnboardingScreen({ navigation }: Props) {
       </View>
 
       {/* Body */}
-      <View style={{ flex: 1, paddingHorizontal: 24, paddingTop: 32 }}>
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: 24, paddingTop: 32, paddingBottom: 24 }} keyboardShouldPersistTaps="handled">
+
+        {/* Step 1 — Business Name */}
         {step === 1 && (
           <>
             <Text style={{ fontSize: 11, fontWeight: '900', color: '#14532d', textTransform: 'uppercase', letterSpacing: 2, marginBottom: 8, opacity: 0.6 }}>
@@ -124,6 +143,7 @@ export function OnboardingScreen({ navigation }: Props) {
           </>
         )}
 
+        {/* Step 2 — Currency */}
         {step === 2 && (
           <>
             <Text style={{ fontSize: 11, fontWeight: '900', color: '#14532d', textTransform: 'uppercase', letterSpacing: 2, marginBottom: 8, opacity: 0.6 }}>
@@ -157,11 +177,12 @@ export function OnboardingScreen({ navigation }: Props) {
             </Text>
           </>
         )}
-      </View>
+
+      </ScrollView>
 
       {/* Footer buttons */}
       <View style={{ paddingHorizontal: 24, paddingBottom: 24, gap: 12 }}>
-        {step < TOTAL_STEPS ? (
+        {!isLastStep ? (
           <Pressable onPress={handleNext}>
             <View style={{ height: 56, alignItems: 'center', justifyContent: 'center', borderRadius: 28, backgroundColor: '#14532d' }}>
               <Text style={{ fontWeight: '900', color: '#ffffff', fontSize: 13, textTransform: 'uppercase', letterSpacing: 2 }}>Continue</Text>
@@ -186,7 +207,7 @@ export function OnboardingScreen({ navigation }: Props) {
         )}
       </View>
 
-      {/* Currency picker modal — same as Business Profile */}
+      {/* Currency picker modal */}
       <Modal visible={isCurrencyModalOpen} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setIsCurrencyModalOpen(false)}>
         <SafeAreaView style={{ flex: 1, backgroundColor: '#ffffff' }} edges={['top', 'bottom']}>
           <View style={{ paddingHorizontal: 24, paddingVertical: 16, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderBottomWidth: 1, borderBottomColor: '#f0fdf4' }}>

@@ -13,6 +13,7 @@ import { useUIStore } from './src/stores/uiStore';
 import { Sidebar } from './src/components/Sidebar';
 import { navigationRef } from './src/navigation/navigationRef';
 import { ExitConfirmModal } from './src/components/ui/ExitConfirmModal';
+import { LoadingScreen } from './src/components/ui/LoadingScreen';
 
 // Hold the native splash until settings are loaded
 SplashScreen.preventAutoHideAsync().catch(() => {});
@@ -24,6 +25,7 @@ export default function App() {
     (state) => state.settings.onboardingCompleted,
   );
   const [showExitModal, setShowExitModal] = useState(false);
+  const [showLoader, setShowLoader] = useState(true);
 
   const isSidebarOpen = useUIStore((state) => state.isSidebarOpen);
   const viewMode = useUIStore((state) => state.viewMode);
@@ -53,7 +55,9 @@ export default function App() {
     return () => subscription.remove();
   }, []);
 
-  if (!isHydrated) return null;
+  if (showLoader) {
+    return <LoadingScreen isReady={isHydrated} onDone={() => setShowLoader(false)} />;
+  }
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>

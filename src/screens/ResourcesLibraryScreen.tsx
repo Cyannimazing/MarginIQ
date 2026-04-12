@@ -2,19 +2,28 @@ import React, { useMemo, useState } from 'react';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { FlatList, Pressable, Text, TextInput, View, TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { RootStackParamList } from '../navigation/types';
 import { useIngredientStore } from '../stores/ingredientStore';
 import { useSettingsStore } from '../stores/settingsStore';
 import { formatMoney } from '../utils/currency';
 import { safeNavigate } from '../navigation/navigationService';
+import { SpotlightOverlay } from '../components/ui/SpotlightOverlay';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'ResourcesLibrary'>;
 
 export function ResourcesLibraryScreen({ navigation, route }: Props) {
+  const insets = useSafeAreaInsets();
   const ingredients = useIngredientStore((state) => state.ingredients);
   const isLoading = useIngredientStore((state) => state.isLoading);
   const loadIngredients = useIngredientStore((state) => state.loadIngredients);
   const currencyCode = useSettingsStore((state) => state.settings.currencyCode);
+  const tutorialStep = useSettingsStore((state) => state.settings.tutorialStep);
+  const tutorialGuideTopic = useSettingsStore((state) => state.settings.tutorialGuideTopic);
+  const saveSettings = useSettingsStore((state) => state.saveSettings);
+
+  const isResourcesGuideActive = tutorialStep === 1 && tutorialGuideTopic === 't-resources';
+  const isResourcesGuideDone = tutorialStep === 1 && tutorialGuideTopic === 't-resources:done';
 
   const [searchQuery, setSearchQuery] = useState('');
   const [page, setPage] = useState(1);
@@ -53,7 +62,7 @@ export function ResourcesLibraryScreen({ navigation, route }: Props) {
   };
 
   React.useLayoutEffect(() => {
-    navigation.setOptions({ title: 'Resources Library' });
+    navigation.setOptions({ title: 'Resources Library', headerRight: undefined });
   }, [navigation]);
 
   return (
@@ -86,7 +95,7 @@ export function ResourcesLibraryScreen({ navigation, route }: Props) {
           keyExtractor={(item) => String(item.id)}
           onEndReached={handleLoadMore}
           onEndReachedThreshold={0.5}
-          contentContainerStyle={{ gap: 12, paddingBottom: 96 }}
+          contentContainerStyle={{ gap: 12, paddingBottom: Math.max(insets.bottom, 24) + 88 }}
           keyboardShouldPersistTaps="always"
           refreshing={isLoading}
           onRefresh={() => { setPage(1); void loadIngredients(); }}
@@ -103,12 +112,15 @@ export function ResourcesLibraryScreen({ navigation, route }: Props) {
           renderItem={({ item }) => (
             <TouchableOpacity
               activeOpacity={0.6}
-              onPress={() =>
+              onPress={() => {
+                if (isResourcesGuideActive) {
+                  void saveSettings({ tutorialStep: 0, tutorialGuideTopic: '' });
+                }
                 safeNavigate('IngredientForm', {
                   ingredientId: item.id,
                   productId: item.productId ?? 0,
-                })
-              }
+                });
+              }}
               className="mb-3"
               style={{ backgroundColor: 'white', borderRadius: 24 }}
               hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
@@ -142,6 +154,57 @@ export function ResourcesLibraryScreen({ navigation, route }: Props) {
           )}
         />
       </View>
+
+      <Pressable
+        onPress={() => {
+          safeNavigate('IngredientForm', {
+            productId: route.params?.productId,
+          });
+        }}
+        style={{
+          position: 'absolute',
+          right: 24,
+          bottom: Math.max(insets.bottom, 24) + 16,
+          height: 64,
+          width: 64,
+          borderRadius: 32,
+          backgroundColor: '#14532d',
+          alignItems: 'center',
+          justifyContent: 'center',
+          shadowColor: '#000',
+          shadowOffset: { width: 0, height: 8 },
+          shadowOpacity: 0.4,
+          shadowRadius: 12,
+          elevation: 12,
+          borderWidth: 4,
+          borderColor: '#ffffff',
+        }}
+        accessibilityRole="button"
+        accessibilityLabel="Add resource"
+      >
+        <Ionicons name="add" size={32} color="white" />
+      </Pressable>
+
+      {tutorialStep === 1 && (isResourcesGuideActive || isResourcesGuideDone) && (
+        <SpotlightOverlay
+          message={
+            isResourcesGuideDone
+              ? 'Saved. Library is ready.'
+              : 'Tap the plus button to add a new resource to your library.'
+          }
+          autoExit={isResourcesGuideDone}
+          textHideDelayMs={2000}
+          avatarFadeDelayMs={1000}
+          avatarFadeDurationMs={950}
+          onAutoExitComplete={
+            isResourcesGuideDone
+              ? () => void saveSettings({ tutorialStep: 0, tutorialGuideTopic: '' })
+              : undefined
+          }
+          onSkip={() => void saveSettings({ tutorialStep: 0, tutorialGuideTopic: '' })}
+        />
+      )}
+
     </View>
   );
 }

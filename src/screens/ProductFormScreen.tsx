@@ -1,7 +1,7 @@
 import React from 'react';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useFocusEffect } from '@react-navigation/native';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useFocusEffect, useIsFocused } from '@react-navigation/native';
 import {
   Alert,
   BackHandler,
@@ -28,6 +28,7 @@ import { OptionChip } from '../components/ui/OptionChip';
 import { FormSection } from '../components/ui/FormSection';
 import { ActionModal } from '../components/ui/ActionModal';
 import { safeNavigate } from '../navigation/navigationService';
+import { SpotlightOverlay, SpotlightHole } from '../components/ui/SpotlightOverlay';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'ProductForm'>;
 
@@ -63,6 +64,8 @@ export function ProductFormScreen({ route, navigation }: Props) {
   
   const settings = useSettingsStore((state) => state.settings);
   const currencyCode = settings.currencyCode;
+  const tutorialStep = settings.tutorialStep;
+  const saveSettings = useSettingsStore((state) => state.saveSettings);
 
   const existingProduct = useMemo(
     () => (initialProductId ? products.find((item) => Number(item.id) === Number(initialProductId)) : undefined),
@@ -72,6 +75,7 @@ export function ProductFormScreen({ route, navigation }: Props) {
   // Step state
   const [step, setStep] = useState(1);
   const [isSaving, setIsSaving] = useState(false);
+  const [overlayKey, setOverlayKey] = useState(0);
   const [autoCreatedId, setAutoCreatedId] = useState<number | null>(null);
   const [modalState, setModalState] = useState<{
     visible: boolean;
@@ -111,6 +115,7 @@ export function ProductFormScreen({ route, navigation }: Props) {
     }, [loadIngredients, loadProductIngredients, effectiveProductId])
   );
 
+  // Advance tutorial step 3 → 4 when user opens the product form
   // Pre-populate selectedConsumables once ingredients are loaded
   useEffect(() => {
     if (initialProductId && existingProductIngredients.length > 0) {
@@ -227,6 +232,63 @@ export function ProductFormScreen({ route, navigation }: Props) {
     ),
   );
 
+  // Step 2 — Cost type selector
+  const [costType, setCostType] = useState<'direct' | 'composed' | null>(() => {
+    if (!existingProduct) return null;
+    // If product has linked ingredients → composed; if it has baseCost > 0 and no ingredients → direct
+    const hasIngredients = existingProductIngredients.length > 0;
+    return hasIngredients || existingProduct.baseCost === 0 ? 'composed' : 'direct';
+  });
+
+  // Spotlight tutorial refs
+  const nameRef = useRef<View>(null);
+  const costTypeRef = useRef<View>(null);
+  const composeBtnRef = useRef<View>(null);
+  const nextBtnRef = useRef<View>(null);
+  const [tutorialHole, setTutorialHole] = useState<SpotlightHole | null>(null);
+
+  // Tutorial: re-measure when step or costType changes
+  useEffect(() => {
+    if (!tutorialStep || tutorialStep < 2 || tutorialStep > 5) {
+      setTutorialHole(null);
+      return;
+    }
+    const t = setTimeout(() => {
+      const refMap: Record<number, React.RefObject<View | null>> = {
+        2: nameRef,
+        3: costTypeRef,
+        4: costType === 'composed' ? composeBtnRef : nextBtnRef,
+        5: nextBtnRef,
+      };
+      const ref = refMap[tutorialStep];
+      ref?.current?.measureInWindow((x, y, w, h) => {
+        if (w > 0) setTutorialHole({ x, y, width: w, height: h });
+      });
+    }, 500);
+    return () => clearTimeout(t);
+  }, [tutorialStep, step, costType]);
+
+  // Tutorial: reset overlay + re-measure on screen focus
+  useFocusEffect(
+    useCallback(() => {
+      setOverlayKey(k => k + 1);
+      if (!tutorialStep || tutorialStep < 2 || tutorialStep > 5) return;
+      const t = setTimeout(() => {
+        const refMap: Record<number, React.RefObject<View | null>> = {
+          2: nameRef,
+          3: costTypeRef,
+          4: costType === 'composed' ? composeBtnRef : nextBtnRef,
+          5: nextBtnRef,
+        };
+        const ref = refMap[tutorialStep];
+        ref?.current?.measure((_, __, w, h, pageX, pageY) => {
+          if (w > 0) setTutorialHole({ x: pageX, y: pageY, width: w, height: h });
+        });
+      }, 500);
+      return () => clearTimeout(t);
+    }, [tutorialStep, costType])
+  );
+
   useEffect(() => {
     void loadProducts();
   }, [loadProducts]);
@@ -271,8 +333,8 @@ export function ProductFormScreen({ route, navigation }: Props) {
         setModalState({ visible: true, title: 'Name Required', message: 'Please enter a product name.', isError: true });
         return false;
       }
-      // Duplicate name guard (skip check when editing the same product)
-      if (!initialProductId) {
+      // Duplicate name guard (skip when editing or when product was already auto-created)
+      if (!initialProductId && !autoCreatedId) {
         const duplicate = products.find(
           p => p.name.trim().toLowerCase() === name.trim().toLowerCase()
         );
@@ -284,15 +346,21 @@ export function ProductFormScreen({ route, navigation }: Props) {
       return true;
     }
     if (step === 2) {
+      if (costType === null) {
+        setModalState({ visible: true, title: 'Select a Method', message: 'Please select how you source this product to continue.', isError: true });
+        return false;
+      }
       const bs = Number(batchSize);
       if (!Number.isInteger(bs) || bs <= 0) {
         setModalState({ visible: true, title: 'Invalid Batch Size', message: 'Batch size must be a whole number greater than 0.', isError: true });
         return false;
       }
-      const val = Number(baseCost);
-      if (!Number.isFinite(val) || val < 0) {
-        setModalState({ visible: true, title: 'Invalid Cost', message: 'Direct/Base Cost must be 0 or greater.', isError: true });
-        return false;
+      if (costType === 'direct') {
+        const val = Number(baseCost);
+        if (!Number.isFinite(val) || val < 0) {
+          setModalState({ visible: true, title: 'Invalid Cost', message: 'Direct/Base Cost must be 0 or greater.', isError: true });
+          return false;
+        }
       }
       if (hasVat) {
         const vat = Number(vatPercent);
@@ -333,6 +401,9 @@ export function ProductFormScreen({ route, navigation }: Props) {
 
   const handleNext = async () => {
     if (!validateStep()) return;
+    // Advance tutorial: step 1 form → tutorialStep 2→3, step 2 form → tutorialStep 4→5
+    if (step === 1 && tutorialStep === 2) void saveSettings({ tutorialStep: 3 });
+    if (step === 2 && tutorialStep === 4) void saveSettings({ tutorialStep: 5 });
     setStep((s) => s + 1);
   };
 
@@ -358,7 +429,7 @@ export function ProductFormScreen({ route, navigation }: Props) {
         batchSize: bs,
         unitsPerSale: Number(unitsPerSale),
         saleUnitLabel: saleUnitLabel.trim(),
-        baseCost: Number(baseCost),
+        baseCost: costType === 'composed' ? 0 : Number(baseCost),
         targetMargin,
         sellingPrice: existingProduct?.sellingPrice ?? 0,
         vatPercent: hasVat ? Number(vatPercent) / 100 : 0,
@@ -410,7 +481,19 @@ export function ProductFormScreen({ route, navigation }: Props) {
 
   const handleSave = async () => {
     const pid = await performSave();
-    if (pid) navigation.goBack();
+    if (pid) {
+      if (tutorialStep === 5) {
+        await saveSettings({ tutorialStep: 0, tutorialGuideTopic: '' });
+        setModalState({
+          visible: true,
+          title: "You're all set!",
+          message: "Your first product is created. Head to the Sales Logger to start tracking your real profit.",
+          isError: false,
+        });
+      } else {
+        navigation.goBack();
+      }
+    }
   };
 
   React.useLayoutEffect(() => {
@@ -484,6 +567,7 @@ export function ProductFormScreen({ route, navigation }: Props) {
         {/* ── STEP 1: Basic Info ── */}
         {step === 1 && (
           <View>
+            <View ref={nameRef} collapsable={false}>
             <FormSection title="Product Identity" icon="leaf">
                 <Text className="text-[10px] font-black text-brand-600 uppercase mb-2 tracking-widest">Product Name</Text>
                 <TextInput
@@ -493,7 +577,6 @@ export function ProductFormScreen({ route, navigation }: Props) {
                   className="rounded-[32px] border border-brand-100 bg-brand-50/50 px-5 py-4 text-base font-bold text-brand-900 mb-6"
                   placeholderTextColor="#adb5bd"
                 />
-                
                 <Text className="text-[10px] font-black text-brand-600 uppercase mb-3 tracking-widest">Select Category</Text>
                 <View className="flex-row flex-wrap gap-2">
                   {PRODUCT_CATEGORIES.map((cat) => (
@@ -506,53 +589,136 @@ export function ProductFormScreen({ route, navigation }: Props) {
                   ))}
                 </View>
             </FormSection>
+            </View>
           </View>
         )}
 
         {/* ── STEP 2: Cost Setup ── */}
         {step === 2 && (
           <View>
-            <FormSection title="Production Parameters" icon="cube">
-                <View className="flex-row gap-4">
-                  <View className="flex-1">
-                    <Text className="text-[10px] font-black text-brand-800 uppercase mb-2 tracking-widest">Batch output (pieces)</Text>
-                    <TextInput
-                      value={batchSize}
-                      onChangeText={setBatchSize}
-                      keyboardType="number-pad"
-                      className="rounded-[32px] border border-brand-100 bg-brand-50/50 px-5 py-4 text-base text-brand-900 font-bold"
-                    />
-                  </View>
-                  <View className="flex-1">
-                    <Text className="text-[10px] font-black text-brand-800 uppercase mb-2 tracking-widest">Direct Cost ({currencyCode})</Text>
-                    <TextInput
-                      value={baseCost}
-                      onChangeText={setBaseCost}
-                      keyboardType="decimal-pad"
-                      className="rounded-[32px] border border-brand-100 bg-brand-50/50 px-5 py-4 text-base text-brand-900 font-bold"
-                    />
-                  </View>
-                </View>
-                <Text className="text-[10px] text-brand-400 mt-2 italic font-medium px-1">Total smallest units one full recipe run makes (e.g. donuts). Cost for wholesale or pre-made items.</Text>
-            </FormSection>
 
-            <FormSection title="Composition & Cost" icon="layers">
-                <Text className="text-[10px] font-black text-brand-800 uppercase tracking-widest px-1 mb-4">Link Ingredients & Packaging to calculate cost</Text>
-                
+            {/* Cost type selector — shown until user picks */}
+            {costType === null && (
+              <View ref={costTypeRef} collapsable={false}>
+              <FormSection title="How do you make this?" icon="help-circle">
+                <Text style={{ fontSize: 12, color: '#64748b', fontWeight: '500', marginBottom: 16, lineHeight: 18 }}>
+                  Choose how you source or produce this product so we can set up the right cost method.
+                </Text>
+
+                {/* Direct / Reseller */}
+                <Pressable onPress={() => { setCostType('direct'); if (tutorialStep === 3) void saveSettings({ tutorialStep: 4 }); }} style={{ marginBottom: 12 }}>
+                  <View style={{
+                    borderRadius: 20, borderWidth: 2, borderColor: '#dcfce7',
+                    backgroundColor: '#f0fdf4', padding: 18, flexDirection: 'row', alignItems: 'center', gap: 14,
+                  }}>
+                    <View style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: '#14532d', alignItems: 'center', justifyContent: 'center' }}>
+                      <Ionicons name="cart" size={22} color="#ffffff" />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ fontSize: 15, fontWeight: '900', color: '#14532d', marginBottom: 2 }}>I buy it ready-made</Text>
+                      <Text style={{ fontSize: 12, color: '#64748b', fontWeight: '500' }}>Reseller, sari-sari, wholesale items</Text>
+                      <Text style={{ fontSize: 11, color: '#94a3b8', fontWeight: '500', marginTop: 2 }}>e.g. 1 pack of pancit canton = 12 pcs</Text>
+                    </View>
+                    <Ionicons name="chevron-forward" size={18} color="#14532d" />
+                  </View>
+                </Pressable>
+
+                {/* Composed / Homemade */}
+                <Pressable onPress={() => { setCostType('composed'); if (tutorialStep === 3) void saveSettings({ tutorialStep: 4 }); }}>
+                  <View style={{
+                    borderRadius: 20, borderWidth: 2, borderColor: '#dcfce7',
+                    backgroundColor: '#f0fdf4', padding: 18, flexDirection: 'row', alignItems: 'center', gap: 14,
+                  }}>
+                    <View style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: '#14532d', alignItems: 'center', justifyContent: 'center' }}>
+                      <Ionicons name="restaurant" size={22} color="#ffffff" />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ fontSize: 15, fontWeight: '900', color: '#14532d', marginBottom: 2 }}>I make it with ingredients</Text>
+                      <Text style={{ fontSize: 12, color: '#64748b', fontWeight: '500' }}>Homemade, cooked, assembled products</Text>
+                      <Text style={{ fontSize: 11, color: '#94a3b8', fontWeight: '500', marginTop: 2 }}>e.g. cakes, pastries, drinks, crafts</Text>
+                    </View>
+                    <Ionicons name="chevron-forward" size={18} color="#14532d" />
+                  </View>
+                </Pressable>
+              </FormSection>
+              </View>
+            )}
+
+            {/* Production Parameters — shown after type is chosen */}
+            {costType !== null && (
+              <FormSection title="Production Parameters" icon="cube">
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+                  <Text style={{ fontSize: 11, color: '#64748b', fontWeight: '600' }}>
+                    {costType === 'direct' ? 'Buying ready-made' : 'Making with ingredients'}
+                  </Text>
+                  <Pressable onPress={() => setCostType(null)}>
+                    <Text style={{ fontSize: 11, color: '#16a34a', fontWeight: '900', textTransform: 'uppercase', letterSpacing: 1 }}>Change</Text>
+                  </Pressable>
+                </View>
+                <Text className="text-[10px] font-black text-brand-800 uppercase mb-2 tracking-widest">
+                  {costType === 'direct' ? 'Pieces per purchase' : 'Batch (pieces)'}
+                </Text>
+                <TextInput
+                  value={batchSize}
+                  onChangeText={setBatchSize}
+                  keyboardType="number-pad"
+                  className="rounded-[32px] border border-brand-100 bg-brand-50/50 px-5 py-4 text-base text-brand-900 font-bold"
+                />
+                <Text className="text-[10px] text-brand-400 mt-2 italic font-medium px-1">
+                  {costType === 'direct'
+                    ? 'How many individual pieces come in 1 purchase unit (e.g. 12 pcs per pack).'
+                    : 'Total pieces your recipe produces in one batch (e.g. 24 donuts).'}
+                </Text>
+              </FormSection>
+            )}
+
+            {/* Direct Cost — only for "direct" path */}
+            {costType === 'direct' && (
+              <FormSection title="Total Cost" icon="cart">
+                <Text className="text-[10px] font-black text-brand-800 uppercase mb-2 tracking-widest">Total Cost ({currencyCode})</Text>
+                <TextInput
+                  value={baseCost}
+                  onChangeText={setBaseCost}
+                  keyboardType="decimal-pad"
+                  className="rounded-[32px] border border-brand-100 bg-brand-50/50 px-5 py-4 text-base text-brand-900 font-bold"
+                />
+                {(() => {
+                  const total = Number(baseCost);
+                  const bs = Number(batchSize);
+                  if (total > 0 && bs > 0) {
+                    const perPiece = total / bs;
+                    return (
+                      <Text className="text-[11px] text-brand-500 mt-2 font-semibold px-1">
+                        = {currencyCode} {perPiece.toFixed(2)} per piece
+                      </Text>
+                    );
+                  }
+                  return (
+                    <Text className="text-[10px] text-brand-400 mt-2 italic font-medium px-1">
+                      Enter the total amount you paid. Cost per piece is auto-computed from your batch size.
+                    </Text>
+                  );
+                })()}
+              </FormSection>
+            )}
+
+            {/* Composition & Cost — only for "composed" path */}
+            {costType === 'composed' && (
+              <FormSection title="Composition & Cost" icon="layers">
+                <Text className="text-[10px] font-black text-brand-800 uppercase tracking-widest px-1 mb-4">Link your ingredients, packaging, and other costs</Text>
+
+                <View ref={composeBtnRef} collapsable={false}>
                 <Pressable
                   onPress={async () => {
                     let pid = Number(initialProductId) || autoCreatedId || 0;
                     if (!pid) {
-                      // First check if at least step 1 (identity) is valid
                       if (!name.trim()) {
                         setModalState({ visible: true, title: 'Name Required', message: 'Please provide a product name before linking resources.', isError: true });
                         return;
                       }
-                      // Auto-save the product shell first
                       pid = await performSave() || 0;
                       if (pid > 0) setAutoCreatedId(pid);
                     }
-                    
                     if (pid > 0) {
                       safeNavigate('ProductAddIngredient', { productId: pid });
                     }
@@ -560,50 +726,52 @@ export function ProductFormScreen({ route, navigation }: Props) {
                   disabled={isSaving}
                   className={`bg-brand-900 h-16 rounded-[24px] flex-row items-center justify-center gap-3 shadow-lg ${isSaving ? 'opacity-50' : ''}`}
                 >
-                    <Ionicons name="add-circle" size={20} color="white" />
-                    <Text className="text-[13px] font-black text-white uppercase tracking-widest">
-                      {isSaving ? 'Saving...' : 'Link Resources'}
-                    </Text>
+                  <Ionicons name="add-circle" size={20} color="white" />
+                  <Text className="text-[13px] font-black text-white uppercase tracking-widest">
+                    {isSaving ? 'Saving...' : 'Compose Resources'}
+                  </Text>
                 </Pressable>
+                </View>
 
                 {existingProductIngredients.length > 0 && (
                   <View className="mt-6 bg-brand-50/50 rounded-2xl p-4 border border-brand-100">
-                     <View className="flex-row justify-between mb-2">
-                        <Text className="text-[10px] font-black text-brand-400 uppercase tracking-widest">Linked Resources</Text>
-                        <Text className="text-[10px] font-black text-brand-900 uppercase">{existingProductIngredients.length} Items</Text>
-                     </View>
-                     <View className="flex-row flex-wrap gap-2">
-                        {existingProductIngredients.slice(0, 5).map(pi => (
-                          <View key={pi.id} className="bg-white px-3 py-1.5 rounded-full border border-brand-100">
-                             <Text className="text-[10px] font-bold text-brand-700">{pi.ingredientName}</Text>
-                          </View>
-                        ))}
-                        {existingProductIngredients.length > 5 && (
-                          <Text className="text-[10px] font-bold text-brand-400 self-center">+{existingProductIngredients.length - 5} more</Text>
-                        )}
-                     </View>
+                    <View className="flex-row justify-between mb-2">
+                      <Text className="text-[10px] font-black text-brand-400 uppercase tracking-widest">Linked Resources</Text>
+                      <Text className="text-[10px] font-black text-brand-900 uppercase">{existingProductIngredients.length} Items</Text>
+                    </View>
+                    <View className="flex-row flex-wrap gap-2">
+                      {existingProductIngredients.slice(0, 5).map(pi => (
+                        <View key={pi.id} className="bg-white px-3 py-1.5 rounded-full border border-brand-100">
+                          <Text className="text-[10px] font-bold text-brand-700">{pi.ingredientName}</Text>
+                        </View>
+                      ))}
+                      {existingProductIngredients.length > 5 && (
+                        <Text className="text-[10px] font-bold text-brand-400 self-center">+{existingProductIngredients.length - 5} more</Text>
+                      )}
+                    </View>
                   </View>
                 )}
-            </FormSection>
+              </FormSection>
+            )}
 
-
-
-            <FormSection title="Tax Configuration" icon="receipt">
+            {/* Tax & Discount — shown after type is chosen */}
+            {costType !== null && (
+              <FormSection title="Tax & Discount" icon="receipt">
                 <View className="flex-row items-center justify-between mb-4">
                   <View>
                     <Text className="text-sm font-black text-brand-900">Value Added Tax (VAT)</Text>
                     <Text className="text-[10px] text-brand-400 font-bold uppercase tracking-tighter">Enable tax calculations</Text>
                   </View>
-                  <Switch 
-                    value={hasVat} 
+                  <Switch
+                    value={hasVat}
                     onValueChange={(val) => {
                       setHasVat(val);
                       if (val && (!vatPercent || vatPercent === '0' || vatPercent === '0.00')) {
                         setVatPercent(String(settings.defaultVatPercent ?? '0'));
                       }
-                    }} 
-                    trackColor={{ true: '#16a34a' }} 
-                    thumbColor={hasVat ? '#ffffff' : '#f8f9fa'} 
+                    }}
+                    trackColor={{ true: '#16a34a' }}
+                    thumbColor={hasVat ? '#ffffff' : '#f8f9fa'}
                   />
                 </View>
                 {hasVat && (
@@ -646,7 +814,8 @@ export function ProductFormScreen({ route, navigation }: Props) {
                     />
                   </View>
                 )}
-            </FormSection>
+              </FormSection>
+            )}
           </View>
         )}
 
@@ -699,6 +868,7 @@ export function ProductFormScreen({ route, navigation }: Props) {
 
         {/* Navigation buttons */}
         <View className="mt-4 gap-4">
+          <View ref={nextBtnRef} collapsable={false}>
           {(step < TOTAL_STEPS) ? (
             <Pressable
               onPress={handleNext}
@@ -720,6 +890,7 @@ export function ProductFormScreen({ route, navigation }: Props) {
               </View>
             </Pressable>
           )}
+          </View>
 
           <View className="flex-row">
             <Pressable
@@ -736,11 +907,29 @@ export function ProductFormScreen({ route, navigation }: Props) {
       </ScrollView>
       </KeyboardAvoidingView>
 
+      {tutorialStep >= 2 && tutorialStep <= 5 && !initialProductId && (
+        <SpotlightOverlay
+          key={`${step}-${overlayKey}`}
+          hole={tutorialHole}
+          message={
+            tutorialStep === 2 ? "Start by giving your product a name and picking a category. Once you're ready, hit Next Step to continue." :
+            tutorialStep === 3 ? "Now tell me how you make this product. Do you buy it ready-made or do you make it yourself using ingredients? Pick the one that fits you!" :
+            tutorialStep === 4 && costType === 'composed' ? "Enter your batch (pieces), then tap Compose Resources to add your ingredients and packaging. Set your VAT and discount if needed, then tap Next Step." :
+            tutorialStep === 4 ? "Nice! Enter how many pieces you get from one purchase and the total cost you paid for it. Then hit Next Step when ready." :
+            "Almost there! Set your selling price and choose a pricing strategy. When you're happy with it, hit Launch Product and you're done!"
+          }
+          onSkip={() => void saveSettings({ tutorialStep: 0, tutorialGuideTopic: '' })}
+        />
+      )}
+
       <ActionModal
         visible={modalState.visible}
         title={modalState.title}
         message={modalState.message}
-        onPrimaryAction={() => setModalState(prev => ({ ...prev, visible: false }))}
+        onPrimaryAction={() => {
+          setModalState(prev => ({ ...prev, visible: false }));
+          if (!modalState.isError) navigation.goBack();
+        }}
         isDestructive={!!modalState.isError}
       />
 
@@ -749,7 +938,7 @@ export function ProductFormScreen({ route, navigation }: Props) {
         title="Exit Setup?"
         message={`Exiting without committing will void the entire setup${autoCreatedId ? ' and delete this product' : ''}.`}
         primaryActionText="Stay"
-        secondaryActionText="Cancel Setup"
+        secondaryActionText="Exit"
         onPrimaryAction={() => setShowExitConfirm(false)}
         onSecondaryAction={() => { setShowExitConfirm(false); void handleCancel(); }}
       />

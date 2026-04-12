@@ -21,6 +21,7 @@ import { normalizeUnitsPerSale, perSaleCost, saleUnitDisplayName, salesPerBatch 
 import { OptionChip } from '../components/ui/OptionChip';
 
 import { ActionModal } from '../components/ui/ActionModal';
+import { SpotlightOverlay } from '../components/ui/SpotlightOverlay';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'ProductDetail'>;
 
@@ -43,6 +44,9 @@ export function ProductDetailScreen({ route, navigation }: Props) {
   const isLoadingCategories = useProductStore((state) => state.isLoading);
   const editProduct = useProductStore((state) => state.editProduct);
   const settings = useSettingsStore((state) => state.settings);
+  const tutorialStep = useSettingsStore((state) => state.settings.tutorialStep);
+  const tutorialGuideTopic = useSettingsStore((state) => state.settings.tutorialGuideTopic);
+  const saveSettings = useSettingsStore((state) => state.saveSettings);
   const monthlySales = useSalesStore((state) => state.monthlySales);
 
   const product = products.find((p) => Number(p.id) === Number(productId));
@@ -82,6 +86,7 @@ export function ProductDetailScreen({ route, navigation }: Props) {
   const [isGoalExpanded, setIsGoalExpanded] = useState(false);
   const [goalInput, setGoalInput] = useState(String(product?.monthlyGoalProfit || '0'));
   const [isSavingGoal, setIsSavingGoal] = useState(false);
+  const [isGoalTutorialCompleting, setIsGoalTutorialCompleting] = useState(false);
 
   const [modalState, setModalState] = useState<{
     visible: boolean;
@@ -95,6 +100,12 @@ export function ProductDetailScreen({ route, navigation }: Props) {
   const [priceInput, setPriceInput] = useState('0');
   const [isSavingPrice, setIsSavingPrice] = useState(false);
 
+  useEffect(() => {
+    if (tutorialStep !== 1 || tutorialGuideTopic !== 't-goals') {
+      setIsGoalTutorialCompleting(false);
+    }
+  }, [tutorialStep, tutorialGuideTopic]);
+
   const handleSaveGoal = async () => {
     if (!product) return;
     const val = Number(goalInput) || 0;
@@ -102,6 +113,9 @@ export function ProductDetailScreen({ route, navigation }: Props) {
       setIsSavingGoal(true);
       await editProduct(product.id, { monthlyGoalProfit: val });
       setIsGoalExpanded(false);
+      if (tutorialStep === 1 && tutorialGuideTopic === 't-goals') {
+        setIsGoalTutorialCompleting(true);
+      }
     } catch (err) {
       setModalState({
         visible: true,
@@ -916,11 +930,26 @@ export function ProductDetailScreen({ route, navigation }: Props) {
                 onPress={async () => {
                   if (isSavingPrice || !product) return;
                   setIsSavingPrice(true);
-                  const inputVal = Number(priceInput) || 0;
-                  // If user enters 0, we "reset" to the auto-calculated suggested price and save THAT value.
-                  const finalPriceToSave = inputVal === 0 ? suggestedSellingPrice : inputVal;
-                  await editProduct(product.id, { sellingPrice: finalPriceToSave });
-                  setIsEditingPrice(false);
+                  try {
+                    const inputVal = Number(priceInput);
+                    const trimmed = priceInput.trim();
+                    if (trimmed !== '' && trimmed !== '0' && (!Number.isFinite(inputVal) || inputVal < 0)) {
+                      setModalState({
+                        visible: true,
+                        title: 'Invalid Price',
+                        message: 'Please enter a valid price. Enter 0 to reset to the suggested price.',
+                        isError: true,
+                      });
+                      return;
+                    }
+                    const finalPriceToSave = !Number.isFinite(inputVal) || inputVal === 0
+                      ? suggestedSellingPrice
+                      : inputVal;
+                    await editProduct(product.id, { sellingPrice: finalPriceToSave });
+                    setIsEditingPrice(false);
+                  } finally {
+                    setIsSavingPrice(false);
+                  }
                 }}
               >
                 <View className="h-14 items-center justify-center rounded-[20px] bg-emerald-500 flex-row gap-2 shadow-sm shadow-emerald-500/30">
@@ -950,6 +979,34 @@ export function ProductDetailScreen({ route, navigation }: Props) {
         }}
         onSecondaryAction={() => setModalState((s) => ({ ...s, visible: false }))}
       />
+
+      {tutorialStep === 1 && tutorialGuideTopic === 't-goals' && (
+        <SpotlightOverlay
+          message={
+            isGoalTutorialCompleting
+              ? 'Monthly goal saved. Tutorial complete.'
+              : isGoalExpanded
+              ? 'Enter your monthly goal, then tap Save.'
+              : 'Tap Monthly Goal Progress to expand the goal setup card.'
+          }
+          autoExit={isGoalTutorialCompleting}
+          textHideDelayMs={2000}
+          avatarFadeDelayMs={1000}
+          avatarFadeDurationMs={950}
+          onAutoExitComplete={
+            isGoalTutorialCompleting
+              ? () => {
+                  void saveSettings({ tutorialStep: 0, tutorialGuideTopic: '' });
+                  setIsGoalTutorialCompleting(false);
+                }
+              : undefined
+          }
+          onSkip={() => {
+            setIsGoalTutorialCompleting(false);
+            void saveSettings({ tutorialStep: 0, tutorialGuideTopic: '' });
+          }}
+        />
+      )}
     </View>
   );
 }

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useFocusEffect } from '@react-navigation/native';
 import {
   ActivityIndicator,
@@ -34,6 +34,8 @@ import { useUIStore } from '../stores/uiStore';
 import { ActionModal } from '../components/ui/ActionModal';
 import { OptionChip } from '../components/ui/OptionChip';
 import { safeNavigate } from '../navigation/navigationService';
+import { SpotlightOverlay, SpotlightHole } from '../components/ui/SpotlightOverlay';
+import { WelcomeModal } from '../components/ui/WelcomeModal';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Dashboard'>;
 
@@ -45,6 +47,7 @@ export default function DashboardScreen({ navigation }: Props) {
   const viewMode = useUIStore((state) => state.viewMode);
   const [selectedProductId, setSelectedProductId] = useState<number | null>(null);
   const [isGroupingMode, setIsGroupingMode] = useState(false);
+  const [groupTutorialReachedCreateFlow, setGroupTutorialReachedCreateFlow] = useState(false);
   const [selectedProductIds, setSelectedProductIds] = useState<number[]>([]);
   const [isGroupModalVisible, setIsGroupModalVisible] = useState(false);
   const [groupNameInput, setGroupNameInput] = useState('');
@@ -52,6 +55,8 @@ export default function DashboardScreen({ navigation }: Props) {
 
   const [updateGroupId, setUpdateGroupId] = useState<number | null>(null);
   const [isFABExpanded, setIsFABExpanded] = useState(false);
+  const fabRef = useRef<View>(null);
+  const [fabHole, setFabHole] = useState<SpotlightHole | null>(null);
 
   // Animation values
   const fabRotation = useDerivedValue(() => {
@@ -105,9 +110,88 @@ export default function DashboardScreen({ navigation }: Props) {
   const editCostGroup = useProductStore((state) => state.editCostGroup);
   const deleteCostGroup = useProductStore((state) => state.deleteCostGroup);
   const editProduct = useProductStore((state) => state.editProduct);
+  const isLoading = useProductStore((state) => state.isLoading);
   const loadMonthlySales = useSalesStore((state) => state.loadMonthlySales);
   const monthlySales = useSalesStore((state) => state.monthlySales);
   const currencyCode = useSettingsStore((state) => state.settings.currencyCode);
+  const tutorialStep = useSettingsStore((state) => state.settings.tutorialStep);
+  const tutorialGuideTopic = useSettingsStore((state) => state.settings.tutorialGuideTopic);
+  const businessName = useSettingsStore((state) => state.settings.businessName);
+  const saveSettings = useSettingsStore((state) => state.saveSettings);
+  const hasAnyProductGroup = useMemo(() => products.some((p) => p.costGroupId != null), [products]);
+
+  useEffect(() => {
+    if (tutorialStep !== 1 || tutorialGuideTopic !== 't-overhead-group') {
+      setGroupTutorialReachedCreateFlow(false);
+    }
+  }, [tutorialStep, tutorialGuideTopic]);
+
+  const isOverheadDoneState =
+    tutorialStep === 1 &&
+    (tutorialGuideTopic === 't-overhead-group:done' || tutorialGuideTopic === 't-overhead-monthly:done');
+  const isSalesGuideActive = tutorialStep === 1 && tutorialGuideTopic === 't-sales';
+  const isSalesDoneState = tutorialStep === 1 && tutorialGuideTopic === 't-sales:done';
+
+  const tutorialTopicMessage = useMemo(() => {
+    switch (tutorialGuideTopic) {
+      case 't-overhead-group:done':
+        return 'Group monthly overhead saved.';
+      case 't-overhead-monthly:done':
+        return 'Specific product monthly overhead saved.';
+      case 't-overhead-group':
+        if (groupTutorialReachedCreateFlow && hasAnyProductGroup && !isGroupingMode && !isGroupModalVisible && !isFABExpanded) {
+          return 'Tap Setup Monthly Overhead below your group to continue.';
+        }
+        if (isGroupModalVisible) {
+          return 'Enter the group name, then tap Confirm.';
+        }
+        if (isGroupingMode) {
+          if (selectedProductIds.length < 2) {
+            return 'Select at least 2 products to include in your group.';
+          }
+          return 'Looking good! Now tap Create Group to continue.';
+        }
+        if (isFABExpanded) {
+          return 'Tap Create Group from this menu.';
+        }
+        return 'Tap the plus button to get started.';
+      case 't-overhead-monthly':
+        return 'Tap Setup Monthly Overhead below a specific product card.';
+      case 't-resources':
+        return 'Open the menu, then tap Library to manage your resources.';
+      case 't-sales':
+        return 'Long press a product card, open actions, then tap Log Sales.';
+      case 't-sales:done':
+        return 'Sale logged successfully!';
+      case 't-compose':
+        return 'Tap the green plus button, choose Add Product, pick composed setup, then open Compose Resources.';
+      case 't-goals':
+        return 'Tap any product card to open Product Analysis.';
+      default:
+        return "Let's add your first product! Tap that green plus button to open the menu, then select Add Product and I'll walk you through the setup.";
+    }
+  }, [
+    tutorialGuideTopic,
+    groupTutorialReachedCreateFlow,
+    hasAnyProductGroup,
+    isGroupingMode,
+    isGroupModalVisible,
+    isFABExpanded,
+    selectedProductIds.length,
+  ]);
+
+  useEffect(() => {
+    if (tutorialStep === 1) {
+      const t = setTimeout(() => {
+        fabRef.current?.measureInWindow((x, y, w, h) => {
+          if (w > 0) setFabHole({ x, y, width: w, height: h });
+        });
+      }, 500);
+      return () => clearTimeout(t);
+    } else {
+      setFabHole(null);
+    }
+  }, [tutorialStep]);
 
   useEffect(() => {
     void loadProducts();
@@ -301,6 +385,14 @@ export default function DashboardScreen({ navigation }: Props) {
     navigation.setOptions({ title });
   }, [navigation, viewMode]);
 
+  if (isLoading && products.length === 0) {
+    return (
+      <View style={{ flex: 1, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center' }}>
+        <ActivityIndicator size="large" color="#14532d" />
+      </View>
+    );
+  }
+
   return (
     <View className="flex-1 bg-white">
       <FlatList
@@ -379,12 +471,15 @@ export default function DashboardScreen({ navigation }: Props) {
                 {/* Tucked Badge - Positioned to always be visible */}
                 <View className="flex-row justify-center -mt-4" style={{ zIndex: 30, elevation: 8 }}>
                   <Pressable
-                    onPress={() =>
+                    onPress={() => {
+                      if (tutorialStep === 1 && tutorialGuideTopic === 't-overhead-monthly') {
+                        void saveSettings({ tutorialStep: 0, tutorialGuideTopic: '' });
+                      }
                       safeNavigate('MonthlyOverheadBreakdown', {
                         target: 'costGroup',
                         costGroupId: item.costGroupId,
-                      })
-                    }
+                      });
+                    }}
                   >
                     <View className="bg-brand-900 rounded-full px-5 py-2.5 shadow-lg border-2 border-white flex-row items-center">
                       <Ionicons name="calculator" size={12} color="white" style={{ marginRight: 6 }} />
@@ -427,12 +522,15 @@ export default function DashboardScreen({ navigation }: Props) {
                 {/* Tucked Badge for Product Overhead */}
                 <View className="flex-row justify-center -mt-4" style={{ zIndex: 30, elevation: 8 }}>
                   <Pressable
-                    onPress={() =>
+                    onPress={() => {
+                      if (tutorialStep === 1 && tutorialGuideTopic === 't-overhead-group') {
+                        void saveSettings({ tutorialStep: 0, tutorialGuideTopic: '' });
+                      }
                       safeNavigate('MonthlyOverheadBreakdown', {
                         target: 'product',
                         productId: p.id,
-                      })
-                    }
+                      });
+                    }}
                   >
                     <View className={`${(p.monthlyOverhead || 0) > 0 ? 'bg-brand-900' : 'bg-brand-50'} rounded-full px-5 py-2.5 shadow-lg border-2 ${Math.max(Number(p.monthlyOverhead), 0) > 0 ? 'border-white' : 'border-brand-200'} flex-row items-center`}>
                       <Ionicons name="calculator" size={12} color={(p.monthlyOverhead || 0) > 0 ? "white" : "#14532d"} style={{ marginRight: 6 }} />
@@ -450,9 +548,16 @@ export default function DashboardScreen({ navigation }: Props) {
         }}
         ListEmptyComponent={
           <View className="flex-1 items-center justify-center py-20 px-10">
-            <Ionicons name="cube-outline" size={64} color="#f1f5f9" />
-            <Text className="mt-4 text-center text-slate-400 font-bold">
-              {viewMode === 'active' ? 'No active products yet.' : 'Empty list.'}
+            <View className="h-24 w-24 rounded-full bg-slate-50 items-center justify-center mb-6 border border-slate-100">
+              <Ionicons name="cube" size={42} color="#cbd5e1" />
+            </View>
+            <Text className="text-xl font-black text-slate-800 tracking-tight text-center mb-2">
+              {viewMode === 'active' ? 'No products yet' : 'Empty list'}
+            </Text>
+            <Text className="text-sm text-center text-slate-500 font-medium leading-relaxed">
+              {viewMode === 'active' 
+                ? "Let's build your lineup! Tap the green + button below to add your first product." 
+                : 'Nothing to see here right now.'}
             </Text>
           </View>
         }
@@ -644,6 +749,12 @@ export default function DashboardScreen({ navigation }: Props) {
                   <Pressable
                     onPress={() => {
                       setIsFABExpanded(false);
+                      if (tutorialStep === 1 && tutorialGuideTopic && tutorialGuideTopic !== 't-overhead-group') {
+                        void saveSettings({ tutorialStep: 0, tutorialGuideTopic: '' });
+                      }
+                      if (tutorialStep === 1 && tutorialGuideTopic === 't-overhead-group') {
+                        setGroupTutorialReachedCreateFlow(true);
+                      }
                       setIsGroupingMode(true);
                     }}
                   >
@@ -661,6 +772,14 @@ export default function DashboardScreen({ navigation }: Props) {
                   <Pressable
                     onPress={() => {
                       setIsFABExpanded(false);
+                      if (tutorialStep === 1) {
+                        if (tutorialGuideTopic === 't-overhead-group' || tutorialGuideTopic === 't-overhead-monthly' || tutorialGuideTopic === 't-goals') {
+                          // Wrong action for overhead tutorials: stop tutorial instead of redirecting to another guide flow.
+                          void saveSettings({ tutorialStep: 0, tutorialGuideTopic: '' });
+                        } else {
+                          void saveSettings({ tutorialStep: 2 });
+                        }
+                      }
                       safeNavigate('ProductForm');
                     }}
                   >
@@ -676,8 +795,11 @@ export default function DashboardScreen({ navigation }: Props) {
                 </Animated.View>
 
                 {/* Main Action FAB */}
+                <View ref={fabRef} collapsable={false}>
                 <Pressable
-                  onPress={() => setIsFABExpanded(!isFABExpanded)}
+                  onPress={() => {
+                    setIsFABExpanded(!isFABExpanded);
+                  }}
                   style={{
                     height: 64,
                     width: 64,
@@ -702,6 +824,7 @@ export default function DashboardScreen({ navigation }: Props) {
                     />
                   </Animated.View>
                 </Pressable>
+                </View>
               </>
             )}
           </View>
@@ -724,6 +847,30 @@ export default function DashboardScreen({ navigation }: Props) {
         }}
         onSecondaryAction={() => setModalState((s: any) => ({ ...s, visible: false }))}
       />
+
+      <WelcomeModal
+        visible={tutorialStep === -1}
+        businessName={businessName}
+        onGuide={() => void saveSettings({ tutorialStep: 1 })}
+        onSkip={() => void saveSettings({ tutorialStep: 0, tutorialGuideTopic: '' })}
+      />
+
+      {tutorialStep === 1 && (
+        <SpotlightOverlay
+          hole={isSalesGuideActive ? null : fabHole}
+          message={tutorialTopicMessage}
+          autoExit={isOverheadDoneState || isSalesDoneState}
+          textHideDelayMs={2000}
+          avatarFadeDelayMs={1000}
+          avatarFadeDurationMs={950}
+          onAutoExitComplete={
+            isOverheadDoneState || isSalesDoneState
+              ? () => void saveSettings({ tutorialStep: 0, tutorialGuideTopic: '' })
+              : undefined
+          }
+          onSkip={() => void saveSettings({ tutorialStep: 0, tutorialGuideTopic: '' })}
+        />
+      )}
 
     </View>
   );

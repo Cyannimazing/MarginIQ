@@ -1,6 +1,6 @@
 {
   "name": "marginiq",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "description": "MarginIQ: Product Profit Optimizer",
   "main": "index.ts",
   "scripts": {
@@ -10,6 +10,7 @@
     "web": "expo start --web"
   },
   "dependencies": {
+    "@expo/vector-icons": "^15.1.1",
     "@hookform/resolvers": "^5.2.2",
     "@react-native-masked-view/masked-view": "0.3.2",
     "@react-navigation/bottom-tabs": "^7.15.6",
